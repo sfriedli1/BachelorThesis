@@ -1,0 +1,382 @@
+---
+title: "Introductional_Analysis"
+output: html_document
+---
+```{R}
+library(readr)
+library(dplyr)
+library(stringr)
+library(lubridate)
+library(ggplot2)
+```
+
+## Objective
+The objective of this Markdown is to try one basic implementation of a method for the detection of a frost event after the start of season (SOS) and analyse the impact of a frost event on the GPP at 3 FluxNet stations in the following 30 days compared to the 3 year average of the same time period.
+
+## Getting started
+To reproduce this script you should create a folder named data_raw and then download the following files *fdk_site_fullyearsequence.csv*, *fdk_site_info.csv* and *FLUXDATAKIT_FLUXNET.tar.gz* from the following link: https://zenodo.org/records/14808331
+
+## Read in site info
+```{R}
+df_site_info <- read_csv("../data_raw/fdk_site_info.csv")
+```
+
+## Read in site full year sequence
+```{R}
+df_site_full_year_sequence <- read_csv("../data_raw/fdk_site_fullyearsequence.csv")
+```
+
+## Combine the two data frames
+```{R}
+df_merged <- left_join(df_site_info, df_site_full_year_sequence, by = "sitename")
+```
+
+## Potentially suitable sites for the analysis
+Filter stations that have a recording of gpp of at least 15 years.
+```{R}
+df_site_gpp_15years <- dplyr::filter(df_merged,
+                                    year_end_gpp - year_start_gpp >=15)
+```
+Filter stations that have the vegetation type DBF, MF or ENF because these are three typical types of forests for Europe and Northamerica.
+```{R}
+df_potential_stations <- dplyr::filter(df_site_gpp_15years,
+                        igbp_land_use %in% c("DBF","MF","ENF"))
+```
+
+After filtering there are 13 possible sites left for the analysis. For the further analysis I will choose one station of each type. I will not consider CH-Dav, IT-Lav and US-NR1 because these three sites are at higher elevation which according to literature can cause an unusual response to forst events after SOS. 
+Therefore in the following analysis I will focus on *BE-Vie*, *DE-Hai* and and *DE-Tha*
+
+## Selection of sites for the analysis
+Sitenames of the stations of interest:
+```{R}
+stations <- c(
+  "BE-Vie",
+  "DE-Hai",
+  "DE-Tha"
+)
+```
+Create data frame containing only those stations:
+```{R}
+df_selected_stations <- dplyr::filter(df_potential_stations,
+                                      sitename %in% stations)
+```
+
+## Read in the csv-files for the selected stations
+Determine the naming pattern of the csv files:
+```{R}
+files_in_tar <- untar("../data_raw/FLUXDATAKIT_FLUXNET.tar.gz", list = TRUE)
+View(data.frame(files_in_tar))
+```
+Unpack the selceted stations from FLUXDATAKIT_FLUXNET.tar.gz folder:
+```{R}
+files_selected <- files_in_tar[
+  grepl(
+    paste0("^FLX_(", paste(stations, collapse = "|"), ")_FLUXDATAKIT_FULLSET_DD_"),
+    files_in_tar
+  )
+]
+
+files_selected
+length(files_selected)
+
+dir.create("../data_raw/FLUXDATAKIT_FLUXNET_test", recursive = TRUE, showWarnings = FALSE)
+
+untar(
+  "../data_raw/FLUXDATAKIT_FLUXNET.tar.gz",
+  files = files_selected,
+  exdir = "../data_raw/FLUXDATAKIT_FLUXNET_test"
+)
+```
+
+## Read in CSV-Files of the selected stations
+```{R}
+files <- list.files(
+  "../data_raw/FLUXDATAKIT_FLUXNET_test",
+  pattern = "\\.csv$",
+  full.names = TRUE
+)
+
+df_all_selected_stations <- lapply(files, function(f) {
+  read_csv(f) |>
+    mutate(
+      source_file = basename(f),
+      site_id = str_extract(basename(f), "(?<=FLX_)[A-Z]{2}-[A-Za-z0-9]+(?=_FLUXDATAKIT)")
+    )
+}) |>
+  bind_rows()
+```
+
+## Detect forst events after SOS at each station during the period of recording
+```{R}
+df_frost <- df_all_selected_stations |> 
+  mutate(date = as.Date(TIMESTAMP),
+         doy = yday(date))|>
+  filter(doy>=110,
+         doy <=140,
+         TMIN_F_MDS <= -2.2) # frost threshold
+
+```
+
+For the simplicity of this analysis I assumed that the analysed trees are sensible to a frost event around their time of the SOS. That is why I defined the time of interest between DOY 110 and 140. In a more detailed analysis this time frame would have to be validated with phonological observations in the field and with satalite data to narrow down the typical timing of budburst specifically for each type of forest or even specifically for each site. 
+The temperature limit of -2.2°C was chosen according to the recommendations of common literature.
+At each of the three stations there was at least one frost event in the time period where plants are most vulnerable to frost events. However it is conspicuous that all the events that were identified are rather early in the time period (DOY 110-113). So maybe these events are too early to have an impact on the GPP in the following 6 months. 
+
+## Plot GPP afer event and average GPP of three years prior for BE-Vie
+```{R}
+df_all_selected_stations <- df_all_selected_stations |> 
+  mutate(date = as.Date(TIMESTAMP))
+
+site_sel <- "BE-Vie"
+event_date <- as.Date("2001-04-21")
+gpp_var <- "GPP_NT_VUT_REF"
+ref_years <- year(event_date) - 1:3
+
+# df with the data for 30 days after event
+event_data_Vie <- df_all_selected_stations |>
+  filter(
+    site_id == site_sel,
+    date >= event_date,
+    date <= event_date + 29
+  ) |>
+  arrange(date) |>
+  mutate(day_since_event = as.integer(date - event_date))
+
+# df with the data of the 30 days in the 3 prior years
+ref_data <- bind_rows(
+  lapply(ref_years, function(y) {
+    ref_event_date <- as.Date(sprintf("%d-%02d-%02d", y, month(event_date), day(event_date)))
+    
+    df_all_selected_stations |>
+      filter(
+        site_id == site_sel,
+        date >= ref_event_date,
+        date <= ref_event_date + 29
+      ) |>
+      arrange(date) |>
+      mutate(
+        ref_year = y,
+        day_since_event = as.integer(date - ref_event_date)
+      )
+  })
+)
+
+# calculate daily mean during reference period
+ref_mean <- ref_data |>
+  group_by(day_since_event) |>
+  summarise(
+    gpp_ref_mean = mean(.data[[gpp_var]], na.rm = TRUE),
+    .groups = "drop"
+  )
+
+
+# Combine event and reference data
+plot_data <- event_data_Vie |>
+  transmute(
+    day_since_event,
+    gpp_event = .data[[gpp_var]]
+  ) |>
+  left_join(ref_mean, by = "day_since_event")
+
+# plot gpp in the 30 days after event and the three year mean from reference period
+ggplot() +
+  geom_line(
+    data = ref_data,
+    aes(x = day_since_event, y = .data[[gpp_var]], group = ref_year),
+    alpha = 0.4
+  ) +
+  geom_line(
+    data = ref_mean,
+    aes(x = day_since_event, y = gpp_ref_mean, linetype = "Mittel 3 Vorjahre"),
+    linewidth = 1
+  ) +
+  geom_line(
+    data = event_data_Vie,
+    aes(x = day_since_event, y = .data[[gpp_var]], linetype = "Eventjahr"),
+    linewidth = 1
+  ) +
+  labs(
+    title = paste("GPP nach Frostereignis:", site_sel),
+    subtitle = paste("Eventdatum:", event_date),
+    x = "Tage seit Ereignis",
+    y = gpp_var,
+    linetype = ""
+  ) +
+  theme_minimal()
+
+```
+
+## Plot GPP afer event and average GPP of three years prior for DE-Hai
+```{R}
+df_all_selected_stations <- df_all_selected_stations |> 
+  mutate(date = as.Date(TIMESTAMP))
+
+site_sel <- "DE-Hai"
+event_date <- as.Date("2005-04-21")
+gpp_var <- "GPP_NT_VUT_REF"
+ref_years <- year(event_date) - 1:3
+
+# df with the data for 30 days after event
+event_data_Hai <- df_all_selected_stations |>
+  filter(
+    site_id == site_sel,
+    date >= event_date,
+    date <= event_date + 29
+  ) |>
+  arrange(date) |>
+  mutate(day_since_event = as.integer(date - event_date))
+
+# df with the data of the 30 days in the 3 prior years
+ref_data <- bind_rows(
+  lapply(ref_years, function(y) {
+    ref_event_date <- as.Date(sprintf("%d-%02d-%02d", y, month(event_date), day(event_date)))
+    
+    df_all_selected_stations |>
+      filter(
+        site_id == site_sel,
+        date >= ref_event_date,
+        date <= ref_event_date + 29
+      ) |>
+      arrange(date) |>
+      mutate(
+        ref_year = y,
+        day_since_event = as.integer(date - ref_event_date)
+      )
+  })
+)
+
+# calculate daily mean during reference period
+ref_mean <- ref_data |>
+  group_by(day_since_event) |>
+  summarise(
+    gpp_ref_mean = mean(.data[[gpp_var]], na.rm = TRUE),
+    .groups = "drop"
+  )
+
+
+# Combine event and reference data
+plot_data <- event_data_Hai |>
+  transmute(
+    day_since_event,
+    gpp_event = .data[[gpp_var]]
+  ) |>
+  left_join(ref_mean, by = "day_since_event")
+
+# plot gpp in the 30 days after event and the three year mean from reference period
+ggplot() +
+  geom_line(
+    data = ref_data,
+    aes(x = day_since_event, y = .data[[gpp_var]], group = ref_year),
+    alpha = 0.4
+  ) +
+  geom_line(
+    data = ref_mean,
+    aes(x = day_since_event, y = gpp_ref_mean, linetype = "Mittel 3 Vorjahre"),
+    linewidth = 1
+  ) +
+  geom_line(
+    data = event_data_Hai,
+    aes(x = day_since_event, y = .data[[gpp_var]], linetype = "Eventjahr"),
+    linewidth = 1
+  ) +
+  labs(
+    title = paste("GPP nach Frostereignis:", site_sel),
+    subtitle = paste("Eventdatum:", event_date),
+    x = "Tage seit Ereignis",
+    y = gpp_var,
+    linetype = ""
+  ) +
+  theme_minimal()
+```
+
+## Plot GPP afer event and average GPP of three years prior for DE-Tha
+```{R}
+df_all_selected_stations <- df_all_selected_stations |> 
+  mutate(date = as.Date(TIMESTAMP))
+
+site_sel <- "DE-Tha"
+event_date <- as.Date("2005-04-21")
+gpp_var <- "GPP_NT_VUT_REF"
+ref_years <- year(event_date) - 1:3
+
+# df with the data for 30 days after event
+event_data_Tha <- df_all_selected_stations |>
+  filter(
+    site_id == site_sel,
+    date >= event_date,
+    date <= event_date + 29
+  ) |>
+  arrange(date) |>
+  mutate(day_since_event = as.integer(date - event_date))
+
+# df with the data of the 30 days in the 3 prior years
+ref_data <- bind_rows(
+  lapply(ref_years, function(y) {
+    ref_event_date <- as.Date(sprintf("%d-%02d-%02d", y, month(event_date), day(event_date)))
+    
+    df_all_selected_stations |>
+      filter(
+        site_id == site_sel,
+        date >= ref_event_date,
+        date <= ref_event_date + 29
+      ) |>
+      arrange(date) |>
+      mutate(
+        ref_year = y,
+        day_since_event = as.integer(date - ref_event_date)
+      )
+  })
+)
+
+# calculate daily mean during reference period
+ref_mean <- ref_data |>
+  group_by(day_since_event) |>
+  summarise(
+    gpp_ref_mean = mean(.data[[gpp_var]], na.rm = TRUE),
+    .groups = "drop"
+  )
+
+
+# Combine event and reference data
+plot_data <- event_data_Tha |>
+  transmute(
+    day_since_event,
+    gpp_event = .data[[gpp_var]]
+  ) |>
+  left_join(ref_mean, by = "day_since_event")
+
+# plot gpp in the 30 days after event and the three year mean from reference period
+ggplot() +
+  geom_line(
+    data = ref_data,
+    aes(x = day_since_event, y = .data[[gpp_var]], group = ref_year),
+    alpha = 0.4
+  ) +
+  geom_line(
+    data = ref_mean,
+    aes(x = day_since_event, y = gpp_ref_mean, linetype = "Mittel 3 Vorjahre"),
+    linewidth = 1
+  ) +
+  geom_line(
+    data = event_data_Tha,
+    aes(x = day_since_event, y = .data[[gpp_var]], linetype = "Eventjahr"),
+    linewidth = 1
+  ) +
+  labs(
+    title = paste("GPP nach Frostereignis:", site_sel),
+    subtitle = paste("Eventdatum:", event_date),
+    x = "Tage seit Ereignis",
+    y = gpp_var,
+    linetype = ""
+  ) +
+  theme_minimal()
+```
+
+## Discussion of the results for the 30-day period
+This first example does not show a very clear and consistent reduction in GPP after the frost event for the sites DE-Tha and BE-Vie. The most clear reduction can be observed at the DE-Hai site. However, also at this site the post-event GPP is almost at the same level again after the 30 days. 
+The reason that there is no clear reduction in GPP, especially at the sites DE-Tha and BE-Vie could be that the event took place before the actual SOS for Evergreen Needleleaf Forests (ENF) and Mixed Forest (MF). The SOS is very dependent on the forest type and also on site-specific factors because in some cases certain species adapt to the local micro climate. Possibly ENF and MF are also forest types that are not as vulnerable to frost events.
+
+## Outlook
+To gain a better understanding of these open questions this work will incorporate earth observation data and possibly phenology imagery data from camera recordings to be able to better limit the time period between SOS and full leaf expansion. The analysis will also be expanded to a larger set of stations distributed across the northern hemisphere (especially Europe and North America) to have multiple cases per forest type for comparison. In addition, future analyses will examine whether frost effects persist beyond the first 30 days by extending the comparison period to 180-365 days after the event. 
+
+
+

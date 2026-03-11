@@ -1,4 +1,5 @@
 # Bachelor Thesis: Frequency changes of false spring events after start of season and Impacts on ecosystem carbon fluxes of forests
+
 **Degree Program:** Geography
 
 **Author:** Sascha Friedli
@@ -17,18 +18,17 @@ This project aims to quantify the occurrence of frost after SOS and evaluate its
 
 **Key research questions:**
 
-Frequency and trends: How often do frost days occur after SOS, and has this frequency changed in the most recent 25 years compared to the 25 years before?
+Frequency and trends: How often do frost days occur after SOS, and has this frequency changed in the most recent 25-30 years?
 
 Impact magnitude: How large is the immediate GPP reduction following frost events?
 
-Ecosystem differences: Do responses differ systematically across plant functional types and ecosystem categories (e.g., deciduous vs. evergreen forests, grasslands)?
+Ecosystem differences: Do responses differ systematically across plant functional types and ecosystem categories (e.g., deciduous vs. evergreen forests)?
 
 Timing sensitivity: Does the impact depend on how many days after SOS the frost event occurs?
 
 ### Data and study system
 
-The analysis will use FluxDataKit (GECO Bern), which provides harmonized eddy-covariance flux data and site-level meteorological drivers such as air temperature:
-https://geco-bern.github.io/FluxDataKit/index.html
+The analysis will use FluxDataKit (GECO Bern), which provides harmonized eddy-covariance flux data and site-level meteorological drivers such as air temperature: <https://geco-bern.github.io/FluxDataKit/index.html>
 
 These data enable identifying frost events directly from measured temperatures and quantifying carbon-flux responses at daily to weekly timescales.
 
@@ -38,7 +38,7 @@ SOS definition: Derive SOS per site-year using a flux-based or temperature/pheno
 
 Frost event detection: Define frost days after SOS using a temperature threshold and identify events within a window after SOS.
 
-Trend analysis: Compare frost-after-SOS frequency between two periods (e.g., 25-year blocks where available) and test for trends over time across sites and ecosystem types.
+Trend analysis: Compare frost-after-SOS frequency during the recent 25-30 years and test for trends over time across sites and ecosystem types.
 
 Flux response quantification: Use event-based composites (before/after comparisons) and regression/event-study approaches to estimate immediate GPP anomalies following frost events while controlling for radiation and other confounders.
 
@@ -58,10 +58,8 @@ This work helps connect changing spring phenology to ecosystem carbon cycling, i
 
 ### Literature
 
-Chen, L., Keski-Saari, S., Kontunen-Soppela, S., Zhu, X., Zhou, X., Hänninen, H., Pumpanen, J., Mola-Yudego, B., Wu, D., & Berninger, F. (2023). Immediate and carry-over effects of late-spring frost and growing season drought on forest gross primary productivity capacity in the Northern Hemisphere. Global Change Biology, 29(14), 3924–3940. https://doi.org/10.1111/gcb.16751
+Chen, L., Keski-Saari, S., Kontunen-Soppela, S., Zhu, X., Zhou, X., Hänninen, H., Pumpanen, J., Mola-Yudego, B., Wu, D., & Berninger, F. (2023). Immediate and carry-over effects of late-spring frost and growing season drought on forest gross primary productivity capacity in the Northern Hemisphere. Global Change Biology, 29(14), 3924–3940. <https://doi.org/10.1111/gcb.16751>
 
-Zohner, C. M., Mo, L., Renner, S. S., Svenning, J.-C., Vitasse, Y., Benito, B. M., Ordonez, A., Baumgarten, F., Bastin, J.-F., Sebald, V., Reich, P. B., Liang, J., Nabuurs, G.-J., de-Miguel, S., Alberti, G., Antón-Fernández, C., Balazy, R., Brändli, U.-B., Chen, H. Y. H., … Crowther, T. W. (2020). Late-spring frost risk between 1959 and 2017 decreased in North America but increased in Europe and Asia. Proceedings of the National Academy of Sciences of the United States of America, 117(22), 12192–12200. https://doi.org/10.1073/pnas.1920816117
+Zohner, C. M., Mo, L., Renner, S. S., Svenning, J.-C., Vitasse, Y., Benito, B. M., Ordonez, A., Baumgarten, F., Bastin, J.-F., Sebald, V., Reich, P. B., Liang, J., Nabuurs, G.-J., de-Miguel, S., Alberti, G., Antón-Fernández, C., Balazy, R., Brändli, U.-B., Chen, H. Y. H., … Crowther, T. W. (2020). Late-spring frost risk between 1959 and 2017 decreased in North America but increased in Europe and Asia. Proceedings of the National Academy of Sciences of the United States of America, 117(22), 12192–12200. <https://doi.org/10.1073/pnas.1920816117>
 
-Chamberlain, C. J., Cook, B. I., García de Cortázar-Atauri, I., & Wolkovich, E. M. (2019). Rethinking false spring risk. Global Change Biology, 25(7), 2209–2220. https://doi.org/10.1111/gcb.14642
-
-
+Chamberlain, C. J., Cook, B. I., García de Cortázar-Atauri, I., & Wolkovich, E. M. (2019). Rethinking false spring risk. Global Change Biology, 25(7), 2209–2220. <https://doi.org/10.1111/gcb.14642>
