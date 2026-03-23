@@ -14,17 +14,28 @@ In many temperate and boreal ecosystems, the start of the growing season (Start 
 
 ### Objectives and research questions
 
+**Primary objective**
+
 This project aims to quantify the occurrence of frost after SOS and evaluate its short-term impact on carbon fluxes using eddy-covariance measurements.
 
-**Key research questions:**
+**Methodological basis**
 
-Frequency and trends: How often do frost days occur after SOS, and has this frequency changed in the most recent 25-30 years?
+1. How can late frost events be consistently identified at eddy-covariance forest sites?
 
-Impact magnitude: How large is the immediate GPP reduction following frost events?
+2. How do event definitions based on thermal forcing (GDD) compare with flux-based definitions using seasonal GPP development?
 
-Ecosystem differences: Do responses differ systematically across plant functional types and ecosystem categories (e.g., deciduous vs. evergreen forests)?
+**Core analysis**
 
-Timing sensitivity: Does the impact depend on how many days after SOS the frost event occurs?
+3. How frequently do late frost events occur after SOS, and how do their frequency and timing vary across sites over time?
+
+4. What is the magnitude and duration of GPP reductions following late frost events?
+
+**Additional analysis**
+
+5. Do late frost events also affect vegetation greenness indicators such as the NDVI?
+
+6. Does the impact of late frost events depend on the timing of the frost event relative to SOS?
+
 
 ### Data and study system
 
@@ -32,17 +43,29 @@ The analysis will use FluxDataKit (GECO Bern), which provides harmonized eddy-co
 
 These data enable identifying frost events directly from measured temperatures and quantifying carbon-flux responses at daily to weekly timescales.
 
-### Methods (initial plan)
+### Methodological approach and implementation
 
-SOS definition: Derive SOS per site-year using a flux-based or temperature/phenology-proxy approach (to be selected based on data availability and robustness).
+**1. Identification of late frost events (foundation)**
 
-Frost event detection: Define frost days after SOS using a temperature threshold and identify events within a window after SOS.
+First, late frost events will be identified for each site-year. This will be done in two steps:
+(1) using a temperature-based definition linked to spring development, for example based on growing degree days (GDD), and
+(2) using a flux-based definition in which frost events are only counted after ecosystem productivity has already increased beyond an early-season threshold, for example after daily GPP exceeds 5% of the winter-to-summer seasonal amplitude.
 
-Trend analysis: Compare frost-after-SOS frequency during the recent 25-30 years and test for trends over time across sites and ecosystem types.
+**2. Temporal and spatial patterns of LFE occurrence (core analysis)**
 
-Flux response quantification: Use event-based composites (before/after comparisons) and regression/event-study approaches to estimate immediate GPP anomalies following frost events while controlling for radiation and other confounders.
+For each site-year, the number of late frost events, the number of frost days after SOS, and the timing of the last frost relative to SOS will be calculated. These metrics will then be compared across sites, years, and forest types in order to assess temporal trends and spatial differences.
 
-Effect of timing: Relate response magnitude to “days since SOS” at the time of frost and compare across ecosystem categories.
+**3. Impacts of LFE on GPP (core analysis)**
+
+The short-term impact of identified late frost events on gross primary productivity will be quantified using event-based analyses. GPP anomalies in the days following each event will be compared to pre-event conditions and to an expected seasonal baseline. Where possible, meteorological covariates such as radiation and temperature will be considered to separate frost effects from background variability.
+
+**4. Timing sensitivity and ecosystem differences (extended analysis)**
+
+A further analysis will test whether the GPP response depends on the timing of the event relative to SOS and whether responses differ systematically among forest types.
+
+**5. Vegetation greenness indicators (optional extension)**
+
+If suitable remote-sensing data are available, the analysis will be extended to vegetation greenness indicators such as the NDVI to test whether late frost impacts are also visible in canopy greenness.
 
 ### Expected outcomes
 
