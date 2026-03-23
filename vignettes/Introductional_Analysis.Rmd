@@ -21,7 +21,7 @@ library(ggplot2)
 The objective of this Markdown is to try one basic implementation of a method for the detection of a frost event after the start of season (SOS) and analyse the impact of a frost event on the GPP at 3 FluxNet stations in the following 30 days compared to the 3 year average of the same time period.
 
 ## Getting started
-To access the raw data used for the following analysis use the Test_Data.R script that can be found in the analysis folder. 
+To access the raw data used for the following analysis refer to the Test_Data.R script that can be found in the analysis folder. 
 
 ## Read in CSV-Files of the selected stations
 ```{R}
