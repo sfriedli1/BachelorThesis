@@ -2,6 +2,13 @@
 title: "Introductional_Analysis"
 output: html_document
 ---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  warning = FALSE,
+  message = FALSE
+)
+```
+
 ```{R}
 library(readr)
 library(dplyr)
@@ -14,84 +21,12 @@ library(ggplot2)
 The objective of this Markdown is to try one basic implementation of a method for the detection of a frost event after the start of season (SOS) and analyse the impact of a frost event on the GPP at 3 FluxNet stations in the following 30 days compared to the 3 year average of the same time period.
 
 ## Getting started
-To reproduce this script you should create a folder named data_raw and then download the following files *fdk_site_fullyearsequence.csv*, *fdk_site_info.csv* and *FLUXDATAKIT_FLUXNET.tar.gz* from the following link: https://zenodo.org/records/14808331
-
-## Read in site info
-```{R}
-df_site_info <- read_csv("../data_raw/fdk_site_info.csv")
-```
-
-## Read in site full year sequence
-```{R}
-df_site_full_year_sequence <- read_csv("../data_raw/fdk_site_fullyearsequence.csv")
-```
-
-## Combine the two data frames
-```{R}
-df_merged <- left_join(df_site_info, df_site_full_year_sequence, by = "sitename")
-```
-
-## Potentially suitable sites for the analysis
-Filter stations that have a recording of gpp of at least 15 years.
-```{R}
-df_site_gpp_15years <- dplyr::filter(df_merged,
-                                    year_end_gpp - year_start_gpp >=15)
-```
-Filter stations that have the vegetation type DBF, MF or ENF because these are three typical types of forests for Europe and Northamerica.
-```{R}
-df_potential_stations <- dplyr::filter(df_site_gpp_15years,
-                        igbp_land_use %in% c("DBF","MF","ENF"))
-```
-
-After filtering there are 13 possible sites left for the analysis. For the further analysis I will choose one station of each type. I will not consider CH-Dav, IT-Lav and US-NR1 because these three sites are at higher elevation which according to literature can cause an unusual response to forst events after SOS. 
-Therefore in the following analysis I will focus on *BE-Vie*, *DE-Hai* and and *DE-Tha*
-
-## Selection of sites for the analysis
-Sitenames of the stations of interest:
-```{R}
-stations <- c(
-  "BE-Vie",
-  "DE-Hai",
-  "DE-Tha"
-)
-```
-Create data frame containing only those stations:
-```{R}
-df_selected_stations <- dplyr::filter(df_potential_stations,
-                                      sitename %in% stations)
-```
-
-## Read in the csv-files for the selected stations
-Determine the naming pattern of the csv files:
-```{R}
-files_in_tar <- untar("../data_raw/FLUXDATAKIT_FLUXNET.tar.gz", list = TRUE)
-View(data.frame(files_in_tar))
-```
-Unpack the selceted stations from FLUXDATAKIT_FLUXNET.tar.gz folder:
-```{R}
-files_selected <- files_in_tar[
-  grepl(
-    paste0("^FLX_(", paste(stations, collapse = "|"), ")_FLUXDATAKIT_FULLSET_DD_"),
-    files_in_tar
-  )
-]
-
-files_selected
-length(files_selected)
-
-dir.create("../data_raw/FLUXDATAKIT_FLUXNET_test", recursive = TRUE, showWarnings = FALSE)
-
-untar(
-  "../data_raw/FLUXDATAKIT_FLUXNET.tar.gz",
-  files = files_selected,
-  exdir = "../data_raw/FLUXDATAKIT_FLUXNET_test"
-)
-```
+To access the raw data used for the following analysis use the Test_Data.R script that can be found in the analysis folder. 
 
 ## Read in CSV-Files of the selected stations
 ```{R}
 files <- list.files(
-  "../data_raw/FLUXDATAKIT_FLUXNET_test",
+  "../data/FLUXDATAKIT_FLUXNET_test",
   pattern = "\\.csv$",
   full.names = TRUE
 )
@@ -377,6 +312,3 @@ The reason that there is no clear reduction in GPP, especially at the sites DE-T
 
 ## Outlook
 To gain a better understanding of these open questions this work will incorporate earth observation data and possibly phenology imagery data from camera recordings to be able to better limit the time period between SOS and full leaf expansion. The analysis will also be expanded to a larger set of stations distributed across the northern hemisphere (especially Europe and North America) to have multiple cases per forest type for comparison. In addition, future analyses will examine whether frost effects persist beyond the first 30 days by extending the comparison period to 180-365 days after the event. 
-
-
-
