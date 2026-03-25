@@ -33,11 +33,17 @@ To reproduce the full workflow from scratch:
 ## Repository structure
 
 project/
+
 ├── analysis/
+
 ├── R/
+
 ├── data/
+
 ├── data_raw/
+
 ├── figures/
+
 └── vignettes/
 
 Key files:
