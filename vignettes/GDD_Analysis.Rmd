@@ -1,0 +1,555 @@
+---
+title: "GDD_Analysis"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+```{r}
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+library(stringr)
+library(broom)
+library(tibble)
+```
+
+## Objective
+The objective of the following analysis is to implement an algorithm for the calculation of GDD for the following five stations: BE-Vie, DE-Hai, DE-Tha, US-Ha1, CH-Lae
+These stations were chosen based on the late spring frost events in Northeastern America in 2010 and the late spring frost events in Germany and Switzerland in 2017. 
+The implementation of the algorithm for calculation of the GDD is based on the definitions of GDD in vitasse & Rebetez (2018) and Zohner et al. (2020). 
+
+## Read in CSV-Files of selected stations
+```{R}
+files <- list.files(
+  "../data/test_data",
+  pattern = "\\.csv$",
+  full.names = TRUE
+)
+
+df_all_selected_stations <- lapply(files, function(f) {
+  read_csv(f) |>
+    mutate(
+      source_file = basename(f),
+      site_id = str_extract(basename(f), "(?<=FLX_)[A-Z]{2}-[A-Za-z0-9]+(?=_FLUXDATAKIT)")
+    )
+}) |>
+  bind_rows()
+
+```
+
+## Calculation of yearly GDD for each station
+For the calculation of the GDD the following formula is used:
+$$
+\mathrm{GDD} = \sum_{d=d_0}^{D} (T_d - T_0)\,\mathbf{I}(T_d \geq T_0)
+$$
+d0: 1st January; D: current DOY; Td: daily mean temperature; T0: temperature thershold (5°C); I: function to check if the daily mean temperature was above the temperature threshold return 1 if true, 0 otherwise.
+
+This formula was implemented in the following .R-Script `GDD.R` that can be found in the `R` folder. 
+```{R}
+source("../R/GDD.R")
+df_GDD <- calculate_gdd(df_all_selected_stations)
+```
+
+**Analyze seasonal trajectory of GDD:**
+Plot the mean GPP over time series
+```{R}
+# Filter out 29th of February, so that every year has 365 days
+df_gdd_no_leap <- df_GDD %>%
+  mutate(
+    year = year(TIMESTAMP),
+    month = month(TIMESTAMP),
+    day = day(TIMESTAMP)
+  ) %>%
+  filter(!(month == 2 & day == 29)) %>%
+  group_by(site_id, year) %>%
+  arrange(TIMESTAMP, .by_group = TRUE) %>%
+  mutate(DOY365 = row_number()) %>%
+  ungroup()
+df_gdd_mean <- df_gdd_no_leap %>%
+  group_by(site_id, DOY365) %>%
+  summarise(
+    mean_GDD = mean(GDD, na.rm = TRUE),
+    .groups = "drop"
+  )
+## Plot mean seasonal trajectory
+ggplot(df_gdd_mean, aes(x = DOY365, y = mean_GDD)) +
+  geom_line(linewidth = 0.8) +
+  facet_wrap(~ site_id) +
+  labs(
+    x = "Day of year",
+    y = "Mean GDD",
+    title = "Mean seasonal GDD trajectory by site"
+  ) +
+  theme_minimal()
+```
+
+Plotting the mean GDD over the course of the year for each station shows that all stations follow a similar pattern. However, significant differences in accumulated GDD over the course of a year are already visible, with BE-Vie having the lowest mean GDD at DOY 365 and US-Ha1 having the highest mean GDD at DOY 365. 
+
+Plot seasonal trajectory of GDD for each year and site
+```{R}
+df_gdd_plot <- df_gdd_no_leap %>%
+  mutate(year = year(TIMESTAMP))
+ggplot() +
+  geom_line(
+    data = df_gdd_plot,
+    aes(x = DOY365, y = GDD, group = year),
+    alpha = 0.12
+  ) +
+  geom_line(
+    data = df_gdd_mean,
+    aes(x = DOY365, y = mean_GDD),
+    linewidth = 1
+  ) +
+  facet_wrap(~ site_id, scales = "free_y") +
+  labs(
+    x = "Day of year",
+    y = "GDD",
+    title = "Seasonal GDD trajectories by site",
+    subtitle = "Thin transparent lines show individual years; thick line shows the mean"
+  ) +
+  theme_minimal()
+```
+
+Plotting the seasonal course in GDD for each year shows that some stations show more significant variation in the seasonal trajectory of GDD than others. 
+
+Plot 5 year mean GDD for each station
+```{R}
+# Define 5-year blocks
+start_year <- min(df_gdd_no_leap$year, na.rm = TRUE)
+
+df_gdd_blocks <- df_gdd_no_leap %>%
+  mutate(
+    block_start = start_year + 5 * ((year - start_year) %/% 5),
+    block_end   = block_start + 4,
+    block_label = paste0(block_start, "-", block_end)
+  )
+# Only keep that blocks that cover complete 5 years
+df_block_counts <- df_gdd_blocks %>%
+  distinct(site_id, year, block_label, block_start) %>%
+  count(site_id, block_label, block_start, name = "n_years")
+
+df_gdd_blocks <- df_gdd_blocks %>%
+  left_join(df_block_counts, by = c("site_id", "block_label", "block_start")) %>%
+  filter(n_years == 5)
+
+# Calculate mean per station, block and time
+df_gdd_block_mean <- df_gdd_blocks %>%
+  group_by(site_id, block_label, block_start, DOY365) %>%
+  summarise(
+    mean_GDD = mean(GDD, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(block_start)
+
+block_levels <- df_gdd_block_mean %>%
+  distinct(block_label, block_start) %>%
+  arrange(block_start) %>%
+  pull(block_label)
+
+df_gdd_block_mean <- df_gdd_block_mean %>%
+  mutate(block_label = factor(block_label, levels = block_levels))
+
+# Define color scheme
+okabe_ito <- c(
+  "#0072B2", # blue
+  "#D55E00", # vermillion
+  "#009E73", # bluish green
+  "#CC79A7", # reddish purple
+  "#E69F00", # orange
+  "#56B4E9", # sky blue
+  "#F0E442", # yellow
+  "#000000"  # black
+)
+
+n_blocks <- nlevels(df_gdd_block_mean$block_label)
+plot_colors <- okabe_ito[seq_len(n_blocks)]
+
+# Plot
+ggplot(
+  df_gdd_block_mean,
+  aes(x = DOY365, y = mean_GDD, color = block_label, group = block_label)
+) +
+  geom_line(linewidth = 1) +
+  facet_wrap(~ site_id) +
+  scale_color_manual(values = plot_colors) +
+  labs(
+    x = "Day of year",
+    y = "Mean GDD",
+    color = "5-year block",
+    title = "Seasonal GDD trajectories by 5-year block"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "bottom",
+    panel.grid.minor = element_blank()
+  )
+```
+
+The 5-year mean GDD trajectories indicate that thermal forcing has generally increased over time at most sites. Especially at the sites CH-Lae, DE-Hai and DE-Tha the increase in accumulated GDD by the end of the year was most significant in the period of 2016-2020. From this graphic no clear trends can be seen in the 5-year mean for the first half of the year. Therefore, to gain a better understanding of the development during spring in a next step this analysis will focus on the period from January to May, because in the context of late spring frost events the accumulation of GDD in this phase of the year is most relevant. 
+
+## Calculation of GDD at last frost event
+In the next step GDD until the last late spring frost event is calculated using the following formula:
+$$
+\mathrm{GDD_{\mathrm{LSF}}} = \sum_{d=d_0}^{D_{\mathrm{LSF}}} (T_d - T_0)\,\mathbf{I}(T_d \geq T_0)
+$$
+d0: 1st January; D: day of last late spring frost; Td: daily mean temperature; T0: temperature thershold (5°C); I: function to check if the daily mean temperature was above the temperature threshold return 1 if true, 0 otherwise.
+
+This formula was implemented in the following .R-Script `GDD_LSF.R` that can be found in the `R` folder.
+```{R}
+source("../R/GDD_LSF.R")
+result <- calculate_gdd_lsf(df_all_selected_stations)
+df_spring_daily <- result$spring_daily
+df_yearly_summary <- result$yearly_summary
+```
+
+**Analyze trajectory of GDD until last frost event:**
+
+Plot mean GPP in spring time over time series
+```{R}
+df_gdd_mean <- df_spring_daily %>%
+  group_by(site_id, DOY) %>%
+  summarise(
+    mean_GDD = mean(GDD, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+ggplot(df_gdd_mean, aes(x = DOY, y = mean_GDD)) +
+  geom_line(linewidth = 1) +
+  facet_wrap(~ site_id) +
+  labs(
+    x = "Day of year",
+    y = "Mean GDD",
+    title = "Mean spring GDD trajectory by site"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank()
+  )
+```
+
+Plot trajectory for each year at every site:
+```{R}
+df_gdd_mean <- df_spring_daily %>%
+  group_by(site_id, DOY) %>%
+  summarise(
+    mean_GDD = mean(GDD, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+ggplot() +
+  geom_line(
+    data = df_spring_daily,
+    aes(x = DOY, y = GDD, group = interaction(site_id, year)),
+    alpha = 0.12,
+    linewidth = 0.4
+  ) +
+  geom_line(
+    data = df_gdd_mean,
+    aes(x = DOY, y = mean_GDD),
+    linewidth = 1.2
+  ) +
+  facet_wrap(~ site_id) +
+  labs(
+    x = "Day of year",
+    y = "GDD",
+    title = "Spring GDD trajectories by site",
+    subtitle = "Thin transparent lines show individual years; thick line shows the mean"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank()
+  )
+```
+
+Plotting the spring trajectory of GDD for each year individually shows that there is variation between years at all stations regarding the beginning of accumulation of GDD as well as the GDD that is accumulated until DOY 151. To identify potential trends in trajectories of GDD over the course of recordings an analysis of 5-year mean will be conducted in the next step.
+
+Plot 5-year mean for each station:
+```{R}
+# Define 5-year blocks
+start_year <- min(df_spring_daily$year, na.rm = TRUE)
+
+df_gdd_blocks <- df_spring_daily %>%
+  mutate(
+    block_start = start_year + 5 * ((year - start_year) %/% 5),
+    block_end   = block_start + 4,
+    block_label = paste0(block_start, "-", block_end)
+  )
+
+# only keep complete 5-year blocks
+df_block_counts <- df_gdd_blocks %>%
+  distinct(site_id, year, block_label, block_start) %>%
+  count(site_id, block_label, block_start, name = "n_years")
+
+df_gdd_blocks <- df_gdd_blocks %>%
+  left_join(df_block_counts, by = c("site_id", "block_label", "block_start")) %>%
+  filter(n_years == 5)
+
+# Mean per station, 5-year-block and DOY
+df_gdd_5yr_mean <- df_gdd_blocks %>%
+  group_by(site_id, block_label, block_start, DOY) %>%
+  summarise(
+    mean_GDD = mean(GDD, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(block_start)
+
+# Faktor-Level chronologisch setzen
+block_levels <- df_gdd_5yr_mean %>%
+  distinct(block_label, block_start) %>%
+  arrange(block_start) %>%
+  pull(block_label)
+
+df_gdd_5yr_mean <- df_gdd_5yr_mean %>%
+  mutate(block_label = factor(block_label, levels = block_levels))
+
+# Define color scheme
+plot_colors <- c(
+  "#0072B2", # blue
+  "#D55E00", # vermillion
+  "#009E73", # bluish green
+  "#CC79A7", # reddish purple
+  "#E69F00", # orange
+  "#56B4E9", # sky blue
+  "#F0E442", # yellow
+  "#000000"  # black
+)
+
+ggplot(
+  df_gdd_5yr_mean,
+  aes(x = DOY, y = mean_GDD, color = block_label, group = block_label)
+) +
+  geom_line(linewidth = 1) +
+  facet_wrap(~ site_id) +
+  scale_color_manual(values = plot_colors[seq_len(nlevels(df_gdd_5yr_mean$block_label))]) +
+  labs(
+    x = "Day of year",
+    y = "Mean GDD",
+    color = "5-year block",
+    title = "5-year mean spring GDD trajectories by site"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "bottom",
+    panel.grid.minor = element_blank()
+  )
+```
+
+Plotting the 5-year mean GPP from the start of year until 31st of May shows no clear change over the time period of 1991 unt 2020, except for the sites BE-Vie and CH-Lae. In BE-Vie the 5-year average for 2011-2015 is elevated and in CH-Lae the 5-year average for 2016-2020 is remarkably higher than any of the 5-year averages before. To better verify the trend in GDD during spring the trend in GDD at selected dates during spring wil be analysed in a next step. 
+
+Analysis of trend in GDD at set dates during spring time:
+
+The development of GDD at march 1st, april 1st, april 15th and may 1st will be analysed by ploting GDD at those dates for each station and adding a trend line. Then the trend will be calculated using linear regression.
+```{R}
+df_fixed_dates <- df_spring_daily %>%
+  mutate(
+    month = month(TIMESTAMP),
+    day = day(TIMESTAMP),
+    date_label = case_when(
+      month == 3 & day == 1  ~ "1 Mar",
+      month == 3 & day == 15 ~ "15 Mar",
+      month == 4 & day == 1  ~ "1 Apr",
+      month == 4 & day == 15 ~ "15 Apr",
+      month == 5 & day == 1  ~ "1 May",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  filter(!is.na(date_label)) %>%
+  mutate(
+    date_label = factor(
+      date_label,
+      levels = c("1 Mar", "15 Mar", "1 Apr", "15 Apr", "1 May")
+    )
+  ) %>%
+  select(site_id, year, TIMESTAMP, date_label, GDD)
+
+ggplot(df_fixed_dates, aes(x = year, y = GDD)) +
+  geom_point(alpha = 0.6, size = 1.8) +
+  geom_smooth(method = "lm", se = TRUE, linewidth = 0.8, color = "#0072B2") +
+  facet_grid(date_label ~ site_id) +
+  scale_x_continuous(
+    breaks = c(1995, 2000, 2005, 2010, 2015, 2020),
+    expand = expansion(mult = c(0.02, 0.02))
+  ) +
+  labs(
+    x = "Year",
+    y = "GDD",
+    title = "Trends in GDD at selected spring dates"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.spacing = unit(0.8, "lines")
+  )
+```
+
+Calculating the linear trends of GDD for each site:
+```{R}
+trend_results <- df_fixed_dates %>%
+  group_by(site_id, date_label) %>%
+  do({
+    model <- lm(GDD ~ year, data = .)
+    
+    tidy_res <- tidy(model) %>%
+      filter(term == "year")
+    
+    ci_res <- as.data.frame(confint(model)) %>%
+      rownames_to_column("term") %>%
+      filter(term == "year") %>%
+      rename(conf.low = `2.5 %`, conf.high = `97.5 %`)
+    
+    left_join(tidy_res, ci_res, by = "term")
+  }) %>%
+  ungroup() %>%
+  transmute(
+    site_id,
+    date_label,
+    trend_per_year = estimate,
+    trend_per_5_years = estimate * 5,
+    trend_per_decade = estimate * 10,
+    ci_lower_decade = conf.low * 10,
+    ci_upper_decade = conf.high * 10,
+    p_value = p.value
+  )
+
+trend_results
+```
+
+The trend plots as well as the calculation of GDD trends with linear regression show the clearest trends for the site CH-Lae. For each of the chosen dates the trend is positive and p-value also suggests the trends are statistically significant for p=0.05 for every date except for April 1st where it is ever so slightly above this level with p=0.057. The strongest positive trend can be observed for April 15th and and May 1st with a trend of +6.6 and +7.7 respectively, resulting in a trend of +65.6 and +76.7 per decade. In CH-Lae we have therefore observed a clear increase in cumulative thermal forcing during spring, which could have relevant implications for late spring frost events occurring during this time period. Because increased thermal forcing means plant phenology is further developed already and therefore more sensitive to frost. 
+All other stations show no statistically significant trend across the spring period, except for DE-Tha with a trend of +26.9 per decade for April 15th and US-Ha1 with a trend of +6.7 per decade.
+
+## Analysis of GDD at last spring frost
+Plot GDD at last frost for each site over the analysis period 1991-2020:
+```{R}
+ggplot(df_yearly_summary, aes(x=year, y=GDD_at_LSF))+
+  geom_point(alpha=0.7, size=2)+
+  geom_smooth(method="lm", se=TRUE, color="#0072B2", linewidth=0.9)+
+  facet_wrap(~site_id)+
+  labs(
+    x = "Year",
+    y = "GDD at LSF",
+    title = "Interannual variation in GDD at the last spring frost"
+  )+
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank()
+  )
+```
+
+Plotting the GDD at last spring frost for each station over the time period of analysis the sites CH-Lae and US-Ha1 seem to have a positive trend, meaning the the accumulated GDD at last frost has increased. However, for CH-Lae the wide 95% confidence interval of the fitted linear trend suggests rather high uncertainty. Potentially, this uncertainty is partly due to the one clearly visible outlier. At all other sites GDD at last frost stayed relatively stable or has even decreased slightly.
+
+Trend in DOY of LSF:
+```{R}
+ggplot(df_yearly_summary, aes(x = year, y = last_frost_doy)) +
+  geom_point(alpha = 0.7, size = 2) +
+  geom_smooth(method = "lm", se = TRUE, color = "#D55E00", linewidth = 0.9) +
+  facet_wrap(~ site_id) +
+  labs(
+    x = "Year",
+    y = "DOY of last spring frost",
+    title = "Interannual variation in the timing of the last spring frost"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank()
+  )
+```
+
+The DOY of the last spring frost event seems to decrease for almost all sites except US-Ha1 where it seems to have stayed fairly stable or even slightly increased. This suggests that the last frost event typically occurs earlier in the year. However, the scattering of the individual data points is fairly larger, hence resulting in wide 95% confidence intervals for all sites except US-Ha1.
+
+Plot relationship between GDD at last frost and DOY of last frost:
+```{R}
+ggplot(df_yearly_summary, aes(x = last_frost_doy, y = GDD_at_LSF)) +
+  geom_point(alpha = 0.7, size = 2) +
+  geom_smooth(method = "lm", se = TRUE, color = "#009E73", linewidth = 0.9) +
+  facet_wrap(~ site_id) +
+  labs(
+    x = "DOY of last spring frost",
+    y = "GDD at last spring frost",
+    title = "Relationship between frost timing and accumulated thermal forcing"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank()
+  )
+```
+
+These plots show that if the last frost event occurs later in the year (higher DOY), then the GDD at last spring frost is higher. 
+
+Identify anomalous years by calculating the z-Score of GDD for each site and year for the last spring frost:
+The following formula was used to calculate the z-Score:
+$$
+z = \frac{x_i - \bar{x}}{s_x}
+$$
+Where xi: GDD in each year, x-bar: mean GDD and sx: standard deviation of GDD
+
+Calculation of z-Score:
+```{R}
+df_anomalies <- df_yearly_summary %>%
+  group_by(site_id) %>%
+  mutate(
+    GDD_at_LSF_mean = mean(GDD_at_LSF, na.rm = TRUE),
+    GDD_at_LSF_sd   = sd(GDD_at_LSF, na.rm = TRUE),
+    GDD_at_LSF_z    = (GDD_at_LSF - GDD_at_LSF_mean) / GDD_at_LSF_sd,
+    
+  ) %>%
+  ungroup()
+```
+
+Plot z-Score:
+```{R}
+# mark event years
+df_anomalies <- df_anomalies %>%
+  mutate(
+    highlight = case_when(
+      site_id == "US-Ha1" & year == 2010 ~ "Event year",
+      site_id != "US-Ha1" & year == 2017 ~ "Event year",
+      TRUE ~ "Other years"
+    )
+  )
+
+ggplot(df_anomalies, aes(x = year, y = GDD_at_LSF_z)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = c(-1, 1), linetype = "dotted") +
+  geom_point(aes(color = highlight), size = 2) +
+  facet_wrap(~ site_id) +
+  scale_color_manual(values = c("Other years" = "grey60", "Event year" = "#D55E00")) +
+  labs(
+    x = "Year",
+    y = "z-score of GDD at LSF",
+    color = "",
+    title = "Standardized anomalies of GDD at the last spring frost"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank(),
+    legend.position = "bottom"
+  )
+```
+
+By calculating the z-Score of GDD for every year at all stations and marking the known event years 2010 for North-eastern America and 2017 for Central Europe we can see that GDD at last frost was indeed conspicuous at all European sites in the year 2017 (z-Score >=2). It was most exceptional in CH-Lae which is consistent with the findings of Vitasse & Rebetez (2018) which also found the event to be most impactful in Switzerland and Southern Germany and less exceptional further to the North. And as DE-Hai and DE-Tha are located in middle and eastern Germany the event was not as strong there. 
+However, for the event in North-eastern America my calculations for the US-Ha1 site do not suggest unusual GPP at last spring frost. For this site the highest anomaly in GPP at last frost was recorded in 2016. 
+
+## Conclusion
+In summary, the analysis of growing degree days (GDD) across the five selected sites revealed clear spatial differences in spring thermal accumulation. The most pronounced increase in GDD was observed at CH-Lae, where nearly all investigated reference dates showed positive trends, indicating a substantially stronger thermal development in recent years. In contrast, the remaining sites exhibited weaker and more heterogeneous patterns that in most cases were not statistically significant.
+
+With regard to GDD accumulated by the time of the last spring frost, no uniform trend emerged across all sites. While CH-Lae and, to some extent, US-Ha1 showed increasing GDD values at the time of the last frost, the other sites remained comparatively stable or displayed slight declines. At the same time, the timing of the last spring frost tended to shift earlier in the year at most European sites, although interannual variability remained considerable and therefore trends are not statistically significant. As expected, later frost events were generally associated with higher accumulated GDD.
+
+As analysed by Vitasse & Rebetez (2018) the anomaly analysis demonstrated that 2017 was a particularly exceptional year at the European sites, with distinctly elevated GDD values at the time of the last spring frost. This pattern was especially pronounced at CH-Lae, suggesting that vegetation had already reached a more advanced stage of spring development when frost occurred. By contrast, US-Ha1 did not show a comparably strong anomaly in 2010, even though there was an impactful late spring frost event in North-eastern USA in 2010,  as has been found by other papers like Hufkens et al. (2012).
+
+Overall, these findings suggest that late-spring frost risk cannot be assessed solely on the basis of frost timing. Rather, it must be considered in relation to the thermal accumulation preceding the frost event, as higher GDD values imply a more advanced phenological state and, therefore, potentially greater vulnerability of vegetation to frost damage. The results thus highlight the usefulness of GDD as an indicator for evaluating the exposure of forest ecosystems to late-spring frost events.
+
+## Literature
+Zohner, C. M., Mo, L., Renner, S. S., Svenning, J.-C., Vitasse, Y., Benito, B. M., Ordonez, A., Baumgarten, F., Bastin, J.-F., Sebald, V., Reich, P. B., Liang, J., Nabuurs, G.-J., de-Miguel, S., Alberti, G., Antón-Fernández, C., Balazy, R., Brändli, U.-B., Chen, H. Y. H., … Crowther, T. W. (2020). Late-spring frost risk between 1959 and 2017 decreased in North America but increased in Europe and Asia. Proceedings of the National Academy of Sciences of the United States of America, 117(22), 12192–12200. https://doi.org/10.1073/pnas.1920816117
+
+Vitasse, Y., & Rebetez, M. (2018). Unprecedented risk of spring frost damage in Switzerland and Germany in 2017. Climatic Change, 149(2), 233–246. https://doi.org/10.1007/s10584-018-2234-y
+
+Hufkens, K., Friedl, M. A., Keenan, T. F., Sonnentag, O., Bailey, A., O’Keefe, J., & Richardson, A. D. (2012). Ecological impacts of a widespread frost event following early spring leaf-out. Global Change Biology, 18(7), 2365–2377. https://doi.org/10.1111/j.1365-2486.2012.02712.x
+
