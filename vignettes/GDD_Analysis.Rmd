@@ -28,7 +28,7 @@ The implementation of the algorithm for calculation of the GDD is based on the d
 ```{R}
 files <- list.files(
   "../data/test_data",
-  pattern = "\\.csv$",
+  pattern = "^FLX_.*\\.csv$",
   full.names = TRUE
 )
 
@@ -545,6 +545,203 @@ With regard to GDD accumulated by the time of the last spring frost, no uniform 
 As analysed by Vitasse & Rebetez (2018) the anomaly analysis demonstrated that 2017 was a particularly exceptional year at the European sites, with distinctly elevated GDD values at the time of the last spring frost. This pattern was especially pronounced at CH-Lae, suggesting that vegetation had already reached a more advanced stage of spring development when frost occurred. By contrast, US-Ha1 did not show a comparably strong anomaly in 2010, even though there was an impactful late spring frost event in North-eastern USA in 2010,  as has been found by other papers like Hufkens et al. (2012).
 
 Overall, these findings suggest that late-spring frost risk cannot be assessed solely on the basis of frost timing. Rather, it must be considered in relation to the thermal accumulation preceding the frost event, as higher GDD values imply a more advanced phenological state and, therefore, potentially greater vulnerability of vegetation to frost damage. The results thus highlight the usefulness of GDD as an indicator for evaluating the exposure of forest ecosystems to late-spring frost events.
+
+## Additional analysis of the event in 2026
+
+### Read in CSV-Files of Meteo Swiss data
+```{R}
+# read in all csv files
+df_bas_hist <- read_csv2(
+  "../data/test_data/bas_daily_historical.csv",
+  col_types = cols(.default = col_character())
+) |>
+  select(
+    tre200d0,
+    tre200dn,
+    tre200dx,
+    station_abbr,
+    reference_timestamp
+  ) |>
+  mutate(
+    tre200d0 = as.numeric(tre200d0),
+    tre200dn = as.numeric(tre200dn),
+    tre200dx = as.numeric(tre200dx),
+    reference_timestamp = as.Date(dmy_hm(reference_timestamp))
+  )
+
+df_bas_recent <- read_csv2(
+  "../data/test_data/bas_daily_recent.csv",
+  col_types = cols(.default = col_character())
+) |>
+  select(
+    tre200d0,
+    tre200dn,
+    tre200dx,
+    station_abbr,
+    reference_timestamp
+  ) |>
+  mutate(
+    tre200d0 = as.numeric(tre200d0),
+    tre200dn = as.numeric(tre200dn),
+    tre200dx = as.numeric(tre200dx),
+    reference_timestamp = as.Date(dmy_hm(reference_timestamp))
+  )
+
+df_ber_hist <- read_csv2(
+  "../data/test_data/ber_daily_historical.csv",
+  col_types = cols(.default = col_character())
+) |>
+  select(
+    tre200d0,
+    tre200dn,
+    tre200dx,
+    station_abbr,
+    reference_timestamp
+  ) |>
+  mutate(
+    tre200d0 = as.numeric(tre200d0),
+    tre200dn = as.numeric(tre200dn),
+    tre200dx = as.numeric(tre200dx),
+    reference_timestamp = as.Date(dmy_hm(reference_timestamp))
+  )
+
+df_ber_recent <- read_csv2(
+  "../data/test_data/ber_daily_recent.csv",
+  col_types = cols(.default = col_character())
+) |>
+  select(
+    tre200d0,
+    tre200dn,
+    tre200dx,
+    station_abbr,
+    reference_timestamp
+  ) |>
+  mutate(
+    tre200d0 = as.numeric(tre200d0),
+    tre200dn = as.numeric(tre200dn),
+    tre200dx = as.numeric(tre200dx),
+    reference_timestamp = as.Date(dmy_hm(reference_timestamp))
+  )
+
+df_luz_hist <- read_csv2(
+  "../data/test_data/luz_daily_historical.csv",
+  col_types = cols(.default = col_character())
+) |>
+  select(
+    tre200d0,
+    tre200dn,
+    tre200dx,
+    station_abbr,
+    reference_timestamp
+  ) |>
+  mutate(
+    tre200d0 = as.numeric(tre200d0),
+    tre200dn = as.numeric(tre200dn),
+    tre200dx = as.numeric(tre200dx),
+    reference_timestamp = as.Date(dmy_hm(reference_timestamp))
+  )
+
+df_luz_recent <- read_csv2(
+  "../data/test_data/luz_daily_recent.csv",
+  col_types = cols(.default = col_character())
+) |>
+  select(
+    tre200d0,
+    tre200dn,
+    tre200dx,
+    station_abbr,
+    reference_timestamp
+  ) |>
+  mutate(
+    tre200d0 = as.numeric(tre200d0),
+    tre200dn = as.numeric(tre200dn),
+    tre200dx = as.numeric(tre200dx),
+    reference_timestamp = as.Date(dmy_hm(reference_timestamp))
+  )
+# combine in one data frame
+df_meteo_swiss <- bind_rows(
+  df_bas_hist,
+  df_bas_recent,
+  df_ber_hist,
+  df_ber_recent,
+  df_luz_hist,
+  df_luz_recent
+)
+# only keep data since 1990
+df_meteo_swiss <- df_meteo_swiss|>filter(
+  reference_timestamp >= as.Date("1990-01-01")
+)
+```
+
+## Calculate GDD at last frost event
+```{R}
+source("../R/GDD_LSF_Meteo_Swiss.R")
+result_meteoswiss <- calculate_gdd_lsf_meteoswiss(df_meteo_swiss)
+
+df_meteoswiss_spring_daily <- result_meteoswiss$spring_daily
+df_meteoswiss_yearly_summary <- result_meteoswiss$yearly_summary
+```
+
+## Analysis of GDD at last frost
+Calculate z-Score of last frost for each year and site:
+```{R}
+df_anomalies <- df_meteoswiss_yearly_summary %>%
+  group_by(station_abbr) %>%
+  mutate(
+    GDD_at_LSF_mean = mean(GDD_at_LSF, na.rm = TRUE),
+    GDD_at_LSF_sd   = sd(GDD_at_LSF, na.rm = TRUE),
+    GDD_at_LSF_z    = (GDD_at_LSF - GDD_at_LSF_mean) / GDD_at_LSF_sd,
+    
+  ) %>%
+  ungroup()
+```
+
+Plot z-Score:
+```{R}
+df_anomalies <- df_anomalies |>
+  mutate(
+    gdd_class = case_when(
+      year == 2026 ~ "year_2026",
+      GDD_at_LSF_z >= 1.5 ~ "high",
+      TRUE ~ "normal"
+    )
+  )
+
+ggplot(df_anomalies, aes(x = year, y = GDD_at_LSF_z, color = gdd_class)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = c(-1, 1), linetype = "dotted") +
+  geom_point(size = 2) +
+  scale_color_manual(
+    values = c(
+      "normal" = "grey60",
+      "high" = "#D55E00", # z-Score >= 1.5
+      "year_2026" = "blue"
+    )
+  ) +
+  facet_wrap(~station_abbr) +
+  labs(
+    x = "Year",
+    y = "z-score of GDD at LSF",
+    color = "",
+    title = "Standardized anomalies of GDD at the last spring frost"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank(),
+    legend.position = "bottom"
+  )
+```
+
+Exctract all anomalous years:
+```{R}
+df_anomalous_years <- df_anomalies |>
+  filter(gdd_class == "high"| year == 2026) |>
+  select(station_abbr, year, GDD_at_LSF)
+```
+
+The graphic and the extraction of all anomalous years and the last frost event in 2026 show that the event in 2026 was not particularly anomalous according to the z-Score. However, in Basel and Lucerne the event was close to the threshold of z = 1 with z = 0.90 and z = 0.91 respectively.z = 1 is considered as a limit above which values are rather unusual. Interestingly, the GDD at the last frost event was not unusual at all with z = 0.14. 
+
+What also stands out, is the the last frost event in 2017 was anomalous both in Basel and Bern. Which is consistent with the findings for the European eddy covariance sites above. 
 
 ## Literature
 Zohner, C. M., Mo, L., Renner, S. S., Svenning, J.-C., Vitasse, Y., Benito, B. M., Ordonez, A., Baumgarten, F., Bastin, J.-F., Sebald, V., Reich, P. B., Liang, J., Nabuurs, G.-J., de-Miguel, S., Alberti, G., Antón-Fernández, C., Balazy, R., Brändli, U.-B., Chen, H. Y. H., … Crowther, T. W. (2020). Late-spring frost risk between 1959 and 2017 decreased in North America but increased in Europe and Asia. Proceedings of the National Academy of Sciences of the United States of America, 117(22), 12192–12200. https://doi.org/10.1073/pnas.1920816117
