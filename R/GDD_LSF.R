@@ -25,11 +25,11 @@ calculate_gdd_lsf <- function(df, t0 = 5, frost_threshold = -2, spring_doy_max =
       month = month(TIMESTAMP),
       day = day(TIMESTAMP)
     ) %>%
-    # 29. Februar entfernen
+    # remove 29th of february
     filter(!(month == 2 & day == 29)) %>%
     arrange(site_id, year, TIMESTAMP) %>%
     group_by(site_id, year) %>%
-    # DOY nach Entfernen des 29. Februar neu durchnummerieren
+    # renumber the DOY after removing 29th of february
     mutate(
       DOY = row_number(),
       T_mean = TA_F_MDS,

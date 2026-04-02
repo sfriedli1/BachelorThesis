@@ -22,9 +22,9 @@ library(tibble)
 ## Objective
 The objective of the following analysis is to implement an algorithm for the calculation of GDD for the following five stations: BE-Vie, DE-Hai, DE-Tha, US-Ha1, CH-Lae
 These stations were chosen based on the late spring frost events in Northeastern America in 2010 and the late spring frost events in Germany and Switzerland in 2017. 
-The implementation of the algorithm for calculation of the GDD is based on the definitions of GDD in vitasse & Rebetez (2018) and Zohner et al. (2020). 
+The implementation of the algorithm for calculation of the GDD is based on the definitions of GDD in Vitasse & Rebetez (2018) and Zohner et al. (2020). 
 
-## Read in CSV-Files of selected stations
+### Read in CSV-Files of selected stations
 ```{R}
 files <- list.files(
   "../data/test_data",
@@ -57,6 +57,7 @@ df_GDD <- calculate_gdd(df_all_selected_stations)
 ```
 
 **Analyze seasonal trajectory of GDD:**
+
 Plot the mean GPP over time series
 ```{R}
 # Filter out 29th of February, so that every year has 365 days
@@ -210,7 +211,7 @@ df_yearly_summary <- result$yearly_summary
 
 **Analyze trajectory of GDD until last frost event:**
 
-Plot mean GPP in spring time over time series
+Plot mean GDD in spring time over time series
 ```{R}
 df_gdd_mean <- df_spring_daily %>%
   group_by(site_id, DOY) %>%
@@ -340,7 +341,7 @@ ggplot(
   )
 ```
 
-Plotting the 5-year mean GPP from the start of year until 31st of May shows no clear change over the time period of 1991 unt 2020, except for the sites BE-Vie and CH-Lae. In BE-Vie the 5-year average for 2011-2015 is elevated and in CH-Lae the 5-year average for 2016-2020 is remarkably higher than any of the 5-year averages before. To better verify the trend in GDD during spring the trend in GDD at selected dates during spring wil be analysed in a next step. 
+Plotting the 5-year mean GPP from the start of year until 31st of May shows no clear change over the time period of 1991 until 2020, except for the sites BE-Vie and CH-Lae. In BE-Vie the 5-year average for 2011-2015 is elevated and in CH-Lae the 5-year average for 2016-2020 is remarkably higher than any of the 5-year averages before. To better verify the trend in GDD during spring the trend in GDD at selected dates during spring will be analysed in a next step. 
 
 Analysis of trend in GDD at set dates during spring time:
 
@@ -422,8 +423,8 @@ trend_results <- df_fixed_dates %>%
 trend_results
 ```
 
-The trend plots as well as the calculation of GDD trends with linear regression show the clearest trends for the site CH-Lae. For each of the chosen dates the trend is positive and p-value also suggests the trends are statistically significant for p=0.05 for every date except for April 1st where it is ever so slightly above this level with p=0.057. The strongest positive trend can be observed for April 15th and and May 1st with a trend of +6.6 and +7.7 respectively, resulting in a trend of +65.6 and +76.7 per decade. In CH-Lae we have therefore observed a clear increase in cumulative thermal forcing during spring, which could have relevant implications for late spring frost events occurring during this time period. Because increased thermal forcing means plant phenology is further developed already and therefore more sensitive to frost. 
-All other stations show no statistically significant trend across the spring period, except for DE-Tha with a trend of +26.9 per decade for April 15th and US-Ha1 with a trend of +6.7 per decade.
+The trend plots as well as the calculation of GDD trends with linear regression show the clearest trends for the site CH-Lae. For each of the chosen dates the trend is positive and p-value also suggests the trends are statistically significant for p=0.05 for every date except for April 1st where it is ever so slightly above this level with p=0.057. The strongest positive trend can be observed for April 15th and and May 1st with a trend of +6.6 and +7.7 GDD per year respectively, resulting in a trend of +65.6 and +76.7 GDD per decade. In CH-Lae we have therefore observed a clear increase in cumulative thermal forcing during spring, which could have relevant implications for late spring frost events occurring during this time period. Because increased thermal forcing means plant phenology is further developed already and therefore more sensitive to frost. 
+All other stations show no statistically significant trend across the spring period, except for DE-Tha with a trend of +26.9 GDD per decade for April 15th and US-Ha1 with a trend of +6.7 GDD per decade.
 
 ## Analysis of GDD at last spring frost
 Plot GDD at last frost for each site over the analysis period 1991-2020:
@@ -439,7 +440,8 @@ ggplot(df_yearly_summary, aes(x=year, y=GDD_at_LSF))+
   )+
   theme_minimal(base_size = 12) +
   theme(
-    panel.grid.minor = element_blank()
+    panel.grid.minor = element_blank(),
+    panel.spacing = unit(1.2, "lines")
   )
 ```
 
@@ -458,7 +460,8 @@ ggplot(df_yearly_summary, aes(x = year, y = last_frost_doy)) +
   ) +
   theme_minimal(base_size = 12) +
   theme(
-    panel.grid.minor = element_blank()
+    panel.grid.minor = element_blank(),
+    panel.spacing = unit(1.2, "lines")
   )
 ```
 
@@ -477,13 +480,15 @@ ggplot(df_yearly_summary, aes(x = last_frost_doy, y = GDD_at_LSF)) +
   ) +
   theme_minimal(base_size = 12) +
   theme(
-    panel.grid.minor = element_blank()
+    panel.grid.minor = element_blank(),
+    panel.spacing = unit(1.2, "lines")
   )
 ```
 
 These plots show that if the last frost event occurs later in the year (higher DOY), then the GDD at last spring frost is higher. 
 
 Identify anomalous years by calculating the z-Score of GDD for each site and year for the last spring frost:
+
 The following formula was used to calculate the z-Score:
 $$
 z = \frac{x_i - \bar{x}}{s_x}
@@ -530,6 +535,7 @@ ggplot(df_anomalies, aes(x = year, y = GDD_at_LSF_z)) +
   theme_minimal(base_size = 12) +
   theme(
     panel.grid.minor = element_blank(),
+    panel.spacing = unit(1.2, "lines"),
     legend.position = "bottom"
   )
 ```
@@ -540,9 +546,9 @@ However, for the event in North-eastern America my calculations for the US-Ha1 s
 ## Conclusion
 In summary, the analysis of growing degree days (GDD) across the five selected sites revealed clear spatial differences in spring thermal accumulation. The most pronounced increase in GDD was observed at CH-Lae, where nearly all investigated reference dates showed positive trends, indicating a substantially stronger thermal development in recent years. In contrast, the remaining sites exhibited weaker and more heterogeneous patterns that in most cases were not statistically significant.
 
-With regard to GDD accumulated by the time of the last spring frost, no uniform trend emerged across all sites. While CH-Lae and, to some extent, US-Ha1 showed increasing GDD values at the time of the last frost, the other sites remained comparatively stable or displayed slight declines. At the same time, the timing of the last spring frost tended to shift earlier in the year at most European sites, although interannual variability remained considerable and therefore trends are not statistically significant. As expected, later frost events were generally associated with higher accumulated GDD.
+With regard to GDD accumulated by the time of the last spring frost, no uniform trend emerged across all sites. While CH-Lae and, to some extent US-Ha1, showed increasing GDD values at the time of the last frost, the other sites remained comparatively stable or displayed slight declines. At the same time, the timing of the last spring frost tended to shift earlier in the year at most European sites, although interannual variability remained considerable and therefore trends are not statistically significant. As expected, later frost events were generally associated with higher accumulated GDD.
 
-As analysed by Vitasse & Rebetez (2018) the anomaly analysis demonstrated that 2017 was a particularly exceptional year at the European sites, with distinctly elevated GDD values at the time of the last spring frost. This pattern was especially pronounced at CH-Lae, suggesting that vegetation had already reached a more advanced stage of spring development when frost occurred. By contrast, US-Ha1 did not show a comparably strong anomaly in 2010, even though there was an impactful late spring frost event in North-eastern USA in 2010,  as has been found by other papers like Hufkens et al. (2012).
+As analysed by Vitasse & Rebetez (2018) the anomaly analysis demonstrated that 2017 was a particularly exceptional year at the European sites, with distinctly elevated GDD values at the time of the last spring frost. This pattern was especially pronounced at CH-Lae, suggesting that vegetation had already reached a more advanced stage of spring development when frost occurred. By contrast, US-Ha1 did not show a comparably strong anomaly in 2010, even though there was an impactful late spring frost event in North-eastern USA in 2010,  as has been found by some papers including Hufkens et al. (2012).
 
 Overall, these findings suggest that late-spring frost risk cannot be assessed solely on the basis of frost timing. Rather, it must be considered in relation to the thermal accumulation preceding the frost event, as higher GDD values imply a more advanced phenological state and, therefore, potentially greater vulnerability of vegetation to frost damage. The results thus highlight the usefulness of GDD as an indicator for evaluating the exposure of forest ecosystems to late-spring frost events.
 
@@ -728,6 +734,7 @@ ggplot(df_anomalies, aes(x = year, y = GDD_at_LSF_z, color = gdd_class)) +
   theme_minimal(base_size = 12) +
   theme(
     panel.grid.minor = element_blank(),
+    panel.spacing = unit(1.2, "lines"),
     legend.position = "bottom"
   )
 ```
@@ -739,7 +746,7 @@ df_anomalous_years <- df_anomalies |>
   select(station_abbr, year, GDD_at_LSF)
 ```
 
-The graphic and the extraction of all anomalous years and the last frost event in 2026 show that the event in 2026 was not particularly anomalous according to the z-Score. However, in Basel and Lucerne the event was close to the threshold of z = 1 with z = 0.90 and z = 0.91 respectively.z = 1 is considered as a limit above which values are rather unusual. Interestingly, the GDD at the last frost event was not unusual at all with z = 0.14. 
+The graphic and the extraction of all anomalous years and the last frost event in 2026 show that the event in 2026 was not particularly anomalous according to the z-Score. However, in Basel and Lucerne the event was close to the threshold of z = 1 with z = 0.90 and z = 0.91 respectively. z = 1 is considered as a limit above which values are rather unusual. Interestingly, the GDD at the last frost event was not unusual at all with z = 0.14. 
 
 What also stands out, is the the last frost event in 2017 was anomalous both in Basel and Bern. Which is consistent with the findings for the European eddy covariance sites above. 
 
