@@ -1,0 +1,181 @@
+---
+title: "GPP_Analysis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+```{R}
+library(readr)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(purrr)
+library(stringr)
+library(tidyr)
+library(Rssa)
+```
+
+## Objective
+The object of the analysis is to determine the Start of Season (SOS) with seasonal GPP cycle oriented at the analysis of Gu et al. (2022). GPP measurements will be smoothed first, then the SOS will be categorized as 15% of daily maximum GPP. In a next step the late spring frost events will be identified and then finally the GPP in the following 30-180 days will be analyzed and compared with the long term average in the respective time span. To remain consistent with Gu et al. (2022), daily GPP time series were smoothed using Singular Spectrum Analysis (SSA) prior to extracting the start of season (SOS) from the smoothed seasonal trajectory. As a sensitivity analysis, an alternative integral smoothing approach based on the smoothed cumulative GPP curve was additionally evaluated.
+
+### Read in CSV-Files of selected stations
+```{R}
+files <- list.files(
+  "../data/test_data",
+  pattern = "^FLX_.*\\.csv$",
+  full.names = TRUE
+)
+
+df_all_selected_stations <- lapply(files, function(f) {
+  read_csv(f) |>
+    mutate(
+      source_file = basename(f),
+      site_id = str_extract(basename(f), "(?<=FLX_)[A-Z]{2}-[A-Za-z0-9]+(?=_FLUXDATAKIT)")
+    )
+}) |>
+  bind_rows()
+
+df_all_selected_stations <- df_all_selected_stations |>
+  mutate(date = ymd(TIMESTAMP))|>
+  filter(!(month(date) == 2 & day(date) == 29))|>
+  mutate(
+    year = year(date),
+    doy = yday(date),
+    doy = if_else(leap_year(date) & month(date) >= 3, doy - 1L, doy)
+  )
+```
+
+## Check data quality of GPP recordings
+```{R}
+# quality control of yearly data
+df_qc_year <- df_all_selected_stations |>
+  group_by(site_id, year) |>
+  summarise(
+    n_days_total = n(),
+    n_gpp_dt = sum(!is.na(GPP_DT_VUT_REF)),
+    n_gpp_nt = sum(!is.na(GPP_NT_VUT_REF)),
+    frac_gpp_dt = n_gpp_dt / n_days_total,
+    frac_gpp_nt = n_gpp_nt / n_days_total,
+    .groups = "drop"
+  )
+
+# mark all years, where <300 days GPP measurements
+df_qc_year <- df_qc_year |>
+  mutate(
+    pass_annual_dt = n_gpp_dt >= 300,
+    pass_annual_nt = n_gpp_nt >= 300
+  )
+
+## quality control of spring data (DOY 60-150)
+df_qc_spring <- df_all_selected_stations |>
+  filter(doy >= 60, doy <=150) |>
+  group_by(site_id, year) |> 
+  summarise(
+    n_spring_days = n(),
+    n_spring_gpp_dt = sum(!is.na(GPP_DT_VUT_REF)),
+    n_spring_gpp_nt = sum(!is.na(GPP_NT_VUT_REF)),
+    frac_spring_dt = n_spring_gpp_dt / n_spring_days,
+    frac_spring_nt = n_spring_gpp_nt / n_spring_days,
+    .groups = "drop"
+  )
+
+# mark all years, where <95% data coverage in spring
+df_qc_spring <- df_qc_spring |> 
+  mutate(
+    pass_spring_dt = frac_spring_dt >= 0.95,
+    pass_spring_nt = frac_spring_nt >= 0.95
+  )
+
+# join both data frames into one
+df_qc <- df_qc_year |>
+  left_join(df_qc_spring, by = c("site_id", "year")) |>
+  mutate(
+    pass_dt = pass_annual_dt & pass_spring_dt,
+    pass_nt = pass_annual_nt & pass_spring_nt
+  )
+```
+
+### Plot quality control variables
+```{R}
+# Visualize yearly data quality
+ggplot(df_qc, aes(x = year, y = frac_gpp_dt)) +
+  geom_point() +
+  geom_hline(yintercept = 0.95, linetype = "dashed", color = "red") +
+  facet_wrap(~site_id) +
+  labs(
+    x = "Year",
+    y = "Fraction valid yearly GPP days",
+    title = "Yearly data coverage for GPP_DT_VUT_REF"
+  ) +
+  theme_minimal()
+```
+
+The quality control check shows that for all 5 sites the measurement of GPP_NT_VUT_REF and GPP_DT_VUT_REF contain no gaps. Therefore, the analysis of GPP can be conducted at all 5 sites over the entire period of recordings for each station. 
+
+## Smooth daily GPP data
+Smooth daytime GPP measurements:
+```{R}
+source("../R/ssa_functions.R")
+df_ssa <- run_ssa_all(
+  data = df_all_selected_stations,
+  L = 60,
+  comps = 1:2,
+  doy_col = "doy"
+)
+```
+
+Experiment with parameters for individual years and plot smoothed GPP curve
+```{R}
+years_to_plot <- c(2005, 2010, 2015, 2017)
+
+for (yr in years_to_plot) {
+  # calculate smoothed GPP
+  df_compare <- compare_ssa_settings(
+  data = df_all_selected_stations,
+  sites = c("BE-Vie", "CH-Lae", "DE-Hai", "DE-Tha", "US-Ha1"),
+  yr = yr,
+  var = GPP_DT_VUT_REF,
+  doy_col = "doy"
+  )
+  # create plot
+  p <- df_compare |>
+    filter(year == yr) |>
+    ggplot(aes(x = doy)) +
+    geom_line(aes(y = gpp_smooth), linewidth = 0.8) +
+    facet_grid(site_id ~ setting) +
+    labs(
+      x = "DOY",
+      y = "GPP",
+      title = paste("SSA-smoothed daily GPP (DT) in", yr)
+    ) +
+    theme_minimal(base_size = 12)
+  
+  ggsave(
+    filename = paste0("../figures/ssa_gpp_dt_", yr, ".png"),
+    plot = p,
+    width = 12,
+    height = 8,
+    dpi = 300
+  )
+}
+
+```
+
+In a Singular Spectrum Analysis two main parameters can be set L = window length and comps = reconstructed components. Depending on how these two parameters are defined the smoothed GPP curve still contains more or less variability. Four different combinations of the two parameters were implemented in the `compare_ssa_settings` function implemented in the `ssa_function.R` script were tested in this analysis. Each of the four combinations was then applied in 4 years, including the two event years 2010 and 2017. Comparing the different plots setting L = 60 and comps = 1:2 produced the smoothest curve for annual daytime GPP (GPP_DT_VUT_REF) with low values during winter, a clear rise during spring and a summer peak. Increasing the number of components significantly increased the variability in the smoothing. This not suitable for the threshold definition of the SOS that will be conducted in this analysis, because the threshold could be crossed multiple times leading to an unclear definition of SOS. Increasing the window length on the other hand can smooth the annual curve to much which could lead to a delay of GPP increase during spring potentially delaying the detection of SOS if defined based on the crossing of a threshold.
+
+## Identification of the SOS
+
+
+## Literature
+Gu, H., Qiao, Y., Xi, Z., Rossi, S., Smith, N. G., Liu, J., & Chen, L. (2022). Warming-induced increase in carbon uptake is linked to earlier spring phenology in temperate and boreal forests. Nature Communications, 13(1), 3698. https://doi.org/10.1038/s41467-022-31496-w
+
+Golyandina, N., & Zhigljavsky, A. (2013). Singular Spectrum Analysis for Time Series. https://doi.org/10.1007/978-3-642-34913-3
+
+
+

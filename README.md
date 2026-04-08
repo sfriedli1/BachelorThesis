@@ -20,13 +20,13 @@ Two levels of reproduction are intended in this repository.
 
 ### Main analysis reproduction
 
-To reproduce the main analysis and figures, it should be sufficient to run the `.Rmd` files in `vignettes/` using the preprocessed data stored in `data/`.
+To reproduce the main analysis and figures, it should be sufficient to create a `figures/` folder and run the `.Rmd` files in `vignettes/` using the preprocessed data stored in `data/`.
 
 ### Full reproduction from raw data
 
 To reproduce the full workflow from scratch:
 
-1. Create the `data_raw/` folder.
+1. Create the `data_raw/` and `figures/` folder.
 2. Run the scripts in `analysis/` to download and prepare the raw data.
 3. Run the `.Rmd` files in `vignettes/` to reproduce analyses and figures.
 

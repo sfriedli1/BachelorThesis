@@ -427,6 +427,15 @@ The trend plots as well as the calculation of GDD trends with linear regression 
 All other stations show no statistically significant trend across the spring period, except for DE-Tha with a trend of +26.9 GDD per decade for April 15th and US-Ha1 with a trend of +6.7 GDD per decade.
 
 ## Analysis of GDD at last spring frost
+
+Boxplot GDD per site:
+```{R}
+ggplot(df_yearly_summary, aes(x= site_id, y = GDD_at_LSF))+
+  geom_boxplot()
+```
+
+The box plots show that the sites in Europe have greater variability in GDD at last frost compared to the site in the US. Also in this plot CH-Lae shows the most significant outlier.
+
 Plot GDD at last frost for each site over the analysis period 1991-2020:
 ```{R}
 ggplot(df_yearly_summary, aes(x=year, y=GDD_at_LSF))+
@@ -737,6 +746,7 @@ ggplot(df_anomalies, aes(x = year, y = GDD_at_LSF_z, color = gdd_class)) +
     panel.spacing = unit(1.2, "lines"),
     legend.position = "bottom"
   )
+ggsave("../figures/gdd_anomalies_plot.png", width = 12, height = 8, dpi = 300)
 ```
 
 Exctract all anomalous years:
