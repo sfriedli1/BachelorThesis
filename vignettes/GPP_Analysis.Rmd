@@ -19,6 +19,7 @@ library(purrr)
 library(stringr)
 library(tidyr)
 library(Rssa)
+library(ggpmisc)
 ```
 
 ## Objective
@@ -119,57 +120,187 @@ ggplot(df_qc, aes(x = year, y = frac_gpp_dt)) +
 The quality control check shows that for all 5 sites the measurement of GPP_NT_VUT_REF and GPP_DT_VUT_REF contain no gaps. Therefore, the analysis of GPP can be conducted at all 5 sites over the entire period of recordings for each station. 
 
 ## Smooth daily GPP data
-Smooth daytime GPP measurements:
+Extensive comparison of parameter combinations
 ```{R}
+# load scripts
 source("../R/ssa_functions.R")
-df_ssa <- run_ssa_all(
-  data = df_all_selected_stations,
-  L = 60,
-  comps = 1:2,
-  doy_col = "doy"
-)
-```
+source("../R/plot_ssa.R")
 
-Experiment with parameters for individual years and plot smoothed GPP curve
-```{R}
-years_to_plot <- c(2005, 2010, 2015, 2017)
-
-for (yr in years_to_plot) {
-  # calculate smoothed GPP
-  df_compare <- compare_ssa_settings(
+# calculate smoothed curve for all parameter combinations
+df_ssa_compare <- compare_ssa_grid(
   data = df_all_selected_stations,
   sites = c("BE-Vie", "CH-Lae", "DE-Hai", "DE-Tha", "US-Ha1"),
-  yr = yr,
+  yr = 2017,
   var = GPP_DT_VUT_REF,
-  doy_col = "doy"
-  )
-  # create plot
-  p <- df_compare |>
-    filter(year == yr) |>
-    ggplot(aes(x = doy)) +
-    geom_line(aes(y = gpp_smooth), linewidth = 0.8) +
-    facet_grid(site_id ~ setting) +
-    labs(
-      x = "DOY",
-      y = "GPP",
-      title = paste("SSA-smoothed daily GPP (DT) in", yr)
-    ) +
-    theme_minimal(base_size = 12)
+  doy_col = "doy",
+  L_values = c(30, 45, 60, 90, 120),
+  comp_max = 5
+)
+
+# plot result
+dir.create("../figures/ssa_settings")
+
+sites_to_plot <- c("BE-Vie", "CH-Lae", "DE-Tha", "DE-Hai", "US-Ha1")
+year_to_plot <- 2017
+
+for (s in sites_to_plot) {
+  p <- plot_ssa_initial_parameters(df_ssa_compare, site = s)
   
   ggsave(
-    filename = paste0("../figures/ssa_gpp_dt_", yr, ".png"),
+    filename = paste0("../figures/ssa_settings/ssa_settings_", s, "_", year_to_plot, ".png"),
     plot = p,
-    width = 12,
-    height = 8,
+    width = 14,
+    height = 10,
     dpi = 300
   )
 }
 
 ```
 
-In a Singular Spectrum Analysis two main parameters can be set L = window length and comps = reconstructed components. Depending on how these two parameters are defined the smoothed GPP curve still contains more or less variability. Four different combinations of the two parameters were implemented in the `compare_ssa_settings` function implemented in the `ssa_function.R` script were tested in this analysis. Each of the four combinations was then applied in 4 years, including the two event years 2010 and 2017. Comparing the different plots setting L = 60 and comps = 1:2 produced the smoothest curve for annual daytime GPP (GPP_DT_VUT_REF) with low values during winter, a clear rise during spring and a summer peak. Increasing the number of components significantly increased the variability in the smoothing. This not suitable for the threshold definition of the SOS that will be conducted in this analysis, because the threshold could be crossed multiple times leading to an unclear definition of SOS. Increasing the window length on the other hand can smooth the annual curve to much which could lead to a delay of GPP increase during spring potentially delaying the detection of SOS if defined based on the crossing of a threshold.
+As explained in Golyandina & Zhigljavsky (2013) Singular Spectrum Analysis two main parameters can be set L = window length and c = reconstructed components. Depending on how these two parameters are defined the smoothed GPP curve still contains more or less of the variability in the original data. To gain an overview how different settings for the two parameters affect the smoothing of daily GPP data for each of the 5 sites, 5 different window lengths and including components 1-5, were tested. The result showed that for all sites including 4 or 5 components already adds a lot of variability to the curve to just extract the annual cycle of daily GPP. Therefore, these components are no longer considered. The window lengths 30 and 45 were also discarded, because for certain sites, like DE-Hai, with such a small window length there was still a lot of variability visible in the curve. Across all sites the most consistent smoothed curves were produced by the following combination: L60C2, L90C2, L90C3, L120C3. In the next step these 4 combinations will be tested for multiple years to evaluate which one of the combinations produced the most consistent smoothed daily GPP curves. 
+
+Comparison of select combinations of parameters across all sites and multiple years
+```{R}
+# load scripts
+source("../R/ssa_functions.R")
+source("../R/plot_ssa.R")
+
+sites_to_plot <- c("BE-Vie", "CH-Lae", "DE-Hai", "DE-Tha", "US-Ha1")
+years_to_plot <- c(2005, 2010, 2015, 2020)
+
+dir.create("../figures/ssa_settings", recursive = TRUE, showWarnings = FALSE)
+
+for (yr in years_to_plot) {
+  
+  df_ssa_compare <- compare_ssa_settings(
+    data = df_all_selected_stations,
+    sites = sites_to_plot,
+    yr = yr,
+    var = GPP_DT_VUT_REF,
+    doy_col = "doy"
+  )
+  
+  for (s in sites_to_plot) {
+    p <- plot_ssa_select_parameters(df_ssa_compare, site = s)
+    
+    ggsave(
+      filename = paste0("../figures/ssa_settings/ssa_settings_", s, "_", yr, ".png"),
+      plot = p,
+      width = 10,
+      height = 8,
+      dpi = 300
+    )
+  }
+}
+```
+
+The final SSA parameterization was chosen to preserve the dominant seasonal development of daily GPP while minimizing short-term variability that could bias threshold-based SOS detection. Across the inspected site-years, the combination window length `L = 90` and reconstruction of components `c = 1:2` provided the most consistent compromise between smoothness and retention of the seasonal GPP trajectory. Compared with L60_C2, it reduced residual short-term variability more effectively, while compared with L90_C3 it avoided reintroducing oscillations. Although L120_C3 also produced plausible seasonal curves, it tended to smooth the seasonal transitions more strongly. Therefore, L90_C2 was selected for the main analysis.
+
+Therefore, these analysis will proceed with the identification of the SOS as proposed in Gu et al. (2022) using smoothed daily GPP values calculated with the Singular Spectrum Analysis with parameters set to the values described above.
+
+Smooth daytime GPP measurements:
+```{R}
+source("../R/ssa_functions.R")
+df_ssa <- run_ssa_all(
+  data = df_all_selected_stations,
+  L = 90,
+  comps = 1:2,
+)
+```
 
 ## Identification of the SOS
+*Analyis based on 15% threshold:*
+
+In the following part of the analysis the Start of Season for each year and site will determined based on the threshold defined by the following formula:
+$$
+T_{\mathrm{site}} = 0.15 \times \max_{t,y}\left(GPP_{\mathrm{smooth},s,t,y}\right)
+$$
+
+Each site has one threshold that is defined as 15% of the averaged maximum smoothed daily GPP over all the years. 
+
+Note: For each site, the first and last year of the time series were excluded from SOS analyses based on SSA-smoothed daily GPP in order to reduce edge effects/artefacts associated with smoothing at the boundaries of the series.
+```{R}
+# remove first and last year
+df_ssa_core <- df_ssa |>
+  group_by(site_id) |>
+  filter(
+    year > min(year),
+    year < max(year)
+  ) |>
+  ungroup()
+
+# calculate threshold for each site
+thresholds_site <- df_ssa_core|>
+  group_by(site_id) |>
+  summarise(
+    gpp_multi_year_max = max(GPP_DT_smoothed, na.rm = TRUE),
+    spring_threshold = 0.15 * gpp_multi_year_max,
+    .groups = "drop"
+  )
+# combine threshold with original data frame
+df_ssa_thr <- df_ssa_core |>
+  left_join(thresholds_site, by = "site_id")
+# calculate the SOS for each year and site
+df_sos <- df_ssa_thr %>%
+  arrange(site_id, year, doy) %>%
+  group_by(site_id, year) %>%
+  summarise(
+    SOS = doy[which(GPP_DT_smoothed > spring_threshold)[1]],
+    annual_GPPmax = max(GPP_DT_smoothed, na.rm = TRUE),
+    mean_GPP_MaySep = mean(GPP_DT_smoothed[doy >= 121 & doy <= 273], na.rm = TRUE), # mean GPP in main growing season
+    spring_threshold = first(spring_threshold), # value of the threshold for each site
+    .groups = "drop"
+)
+```
+
+Boxplot SOS for all sites
+```{R}
+ggplot(df_sos, aes(x = site_id, y = SOS))+
+  geom_boxplot()
+```
+
+Plot trend of SOS for each site
+```{R}
+ggplot(df_sos, aes(x = year, y = SOS)) +
+  geom_point(alpha = 0.4, size = 2) +
+  geom_smooth(method = "lm", se = TRUE, color = "#0072B2", linewidth = 0.9) +
+  stat_poly_eq(
+    formula = y ~ x,
+    aes(label = paste(..rr.label.., ..p.value.label.., sep = "*\", \"*")),
+    parse = TRUE,
+    label.x = "left",
+    label.y = "top",
+    size = 3.5
+  ) +
+  facet_wrap(~ site_id) +
+  labs(
+    x = "Year",
+    y = "Start of season (DOY)",
+    title = "Interannual variation in SOS"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank()
+  )
+```
+
+## Identification of last spring forst after SOS
+Calculate LSF after SOS with 15% threshold
+```{R}
+source("../R/GPP_LSF.R")
+
+lsf_results <- calculate_lsf_after_sos(
+  df = df_ssa_core, # use data frame where the first and last year have been removed
+  df_sos = df_sos,
+  frost_threshold = -2,
+  temp_col = "TMIN_F_MDS"
+)
+
+df_lsf_daily_t15 <- lsf_results$daily
+df_lsf_summary_t15 <- lsf_results$yearly_summary
+```
+
+Using the 15% of maximum daily GPP as the threshold for the SOS results in many years not actually having frost events after the SOS. The threshold of 15% in Gu et al. (2022) as the threshold for the SOS was used in the context of analyzing drought effects. In Chen et al. (2023) a threshold of 10% of maximum daily GPP was used as the threshold for GPP. As this paper also analyzes the context of late spring frost the analysis of last spring forst after SOS will be repeated with a 10% threshold of maximum daily smoothed GPP as the definition of the SOS.
 
 
 ## Literature
@@ -177,5 +308,6 @@ Gu, H., Qiao, Y., Xi, Z., Rossi, S., Smith, N. G., Liu, J., & Chen, L. (2022). W
 
 Golyandina, N., & Zhigljavsky, A. (2013). Singular Spectrum Analysis for Time Series. https://doi.org/10.1007/978-3-642-34913-3
 
+Chen, L., Keski-Saari, S., Kontunen-Soppela, S., Zhu, X., Zhou, X., Hänninen, H., Pumpanen, J., Mola-Yudego, B., Wu, D., & Berninger, F. (2023). Immediate and carry-over effects of late-spring frost and growing season drought on forest gross primary productivity capacity in the Northern Hemisphere. Global Change Biology, 29(14), 3924–3940. https://doi.org/10.1111/gcb.16751
 
 
