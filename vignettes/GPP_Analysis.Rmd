@@ -20,6 +20,7 @@ library(stringr)
 library(tidyr)
 library(Rssa)
 library(ggpmisc)
+library(tibble)
 ```
 
 ## Objective
@@ -209,14 +210,16 @@ df_ssa <- run_ssa_all(
 ```
 
 ## Identification of the SOS
-*Analyis based on 15% threshold:*
+As proposed in Gu et al. (2022) and in Chen et al. (2023) for the identification of the Start of Season this analysis will use the approach of identifying the SOS based on a threshold of multi year maximum daily smoothed GPP. Two threshold levels will be tested: 15% of multi year maximum daily smoothed GPP (Gu et al., 2022) and 10% of multi year maximum daily smoothed GPP (Chen et al., 2023). The 10% threshold will also be tested, because it was used in the context of late spring frost, whereas the 10% threshold was used in the context of drought impacts. 
 
-In the following part of the analysis the Start of Season for each year and site will determined based on the threshold defined by the following formula:
+Formula for SOS threshold:
 $$
-T_{\mathrm{site}} = 0.15 \times \max_{t,y}\left(GPP_{\mathrm{smooth},s,t,y}\right)
+T_{\mathrm{s}} = a \times \max_{t,y}\left(GPP_{\mathrm{smooth},s,t,y}\right)
 $$
 
-Each site has one threshold that is defined as 15% of the averaged maximum smoothed daily GPP over all the years. 
+Two threshold levels will be tested a = {0.10,0.15}. 
+
+Each site has one threshold that is defined as either 10% or 15% of the averaged maximum smoothed daily GPP over all the years. 
 
 Note: For each site, the first and last year of the time series were excluded from SOS analyses based on SSA-smoothed daily GPP in order to reduce edge effects/artefacts associated with smoothing at the boundaries of the series.
 ```{R}
@@ -229,39 +232,59 @@ df_ssa_core <- df_ssa |>
   ) |>
   ungroup()
 
-# calculate threshold for each site
-thresholds_site <- df_ssa_core|>
-  group_by(site_id) |>
-  summarise(
-    gpp_multi_year_max = max(GPP_DT_smoothed, na.rm = TRUE),
-    spring_threshold = 0.15 * gpp_multi_year_max,
-    .groups = "drop"
-  )
-# combine threshold with original data frame
-df_ssa_thr <- df_ssa_core |>
-  left_join(thresholds_site, by = "site_id")
-# calculate the SOS for each year and site
-df_sos <- df_ssa_thr %>%
-  arrange(site_id, year, doy) %>%
-  group_by(site_id, year) %>%
-  summarise(
-    SOS = doy[which(GPP_DT_smoothed > spring_threshold)[1]],
-    annual_GPPmax = max(GPP_DT_smoothed, na.rm = TRUE),
-    mean_GPP_MaySep = mean(GPP_DT_smoothed[doy >= 121 & doy <= 273], na.rm = TRUE), # mean GPP in main growing season
-    spring_threshold = first(spring_threshold), # value of the threshold for each site
-    .groups = "drop"
+# load functions
+source("../R/GPP_SOS.R")
+
+# calculate 15 % threshold for each site
+thresholds_site_t15 <- calc_site_thresholds(
+  data = df_ssa_core,
+  gpp_col = "GPP_DT_smoothed",
+  frac = 0.15
 )
+
+# calculate 10% threshold for each site
+thresholds_site_t10 <- calc_site_thresholds(
+  data = df_ssa_core,
+  gpp_col = "GPP_DT_smoothed",
+  frac = 0.10
+)
+
+# SOS for each site with 15% threshold
+df_sos_t15 <- identify_sos(
+  data = df_ssa_core,
+  thresholds = thresholds_site_t15,
+  gpp_col = "GPP_DT_smoothed",
+  doy_col = "doy"
+)
+
+# SOS for each site with 10% threshold
+df_sos_t10 <- identify_sos(
+  data = df_ssa_core,
+  thresholds = thresholds_site_t10,
+  gpp_col = "GPP_DT_smoothed",
+  doy_col = "doy"
+)
+
 ```
 
 Boxplot SOS for all sites
 ```{R}
-ggplot(df_sos, aes(x = site_id, y = SOS))+
-  geom_boxplot()
+ggplot(df_sos_t10, aes(x = site_id, y = SOS))+
+  geom_boxplot()+
+  ggtitle("Distribution of SOS for each site with 10% threshold")
+
+ggplot(df_sos_t15, aes(x = site_id, y = SOS))+
+  geom_boxplot()+
+  ggtitle("Distribution of SOS for each site with 15% threshold")
 ```
+
+For both thresholds there are significant differences between sites regarding the DOY of the SOS with BE-Vie having the lowest average with 57 and US-Ha1 the highest with an average of 121. But not only the average SOS varies across sites also the variability of SOS within a site across years varies. As expected the SOS shifts to a later DOY with 15% threshold compared to 10% threshold. However, the shift is not equally strong across sites. some sites show a more significant than others.
+
+The differences in SOS between sites match with the annual plots of smoothed daily GPP. In the plots one can clearly see that the rise starts a lot earlier in BE-Vie compared to US-Ha1, where the curve often stays quite flat at the start of the year. So increase in daily GPP picks up later which is consistent with reaching a given GPP threshold later in the year.
 
 Plot trend of SOS for each site
 ```{R}
-ggplot(df_sos, aes(x = year, y = SOS)) +
+ggplot(df_sos_t10, aes(x = year, y = SOS)) +
   geom_point(alpha = 0.4, size = 2) +
   geom_smooth(method = "lm", se = TRUE, color = "#0072B2", linewidth = 0.9) +
   stat_poly_eq(
@@ -276,7 +299,29 @@ ggplot(df_sos, aes(x = year, y = SOS)) +
   labs(
     x = "Year",
     y = "Start of season (DOY)",
-    title = "Interannual variation in SOS"
+    title = "Interannual variation in SOS (10% threshold)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank()
+  )
+
+ggplot(df_sos_t15, aes(x = year, y = SOS)) +
+  geom_point(alpha = 0.4, size = 2) +
+  geom_smooth(method = "lm", se = TRUE, color = "#0072B2", linewidth = 0.9) +
+  stat_poly_eq(
+    formula = y ~ x,
+    aes(label = paste(..rr.label.., ..p.value.label.., sep = "*\", \"*")),
+    parse = TRUE,
+    label.x = "left",
+    label.y = "top",
+    size = 3.5
+  ) +
+  facet_wrap(~ site_id) +
+  labs(
+    x = "Year",
+    y = "Start of season (DOY)",
+    title = "Interannual variation in SOS (15% threshold)"
   ) +
   theme_minimal(base_size = 12) +
   theme(
@@ -284,23 +329,399 @@ ggplot(df_sos, aes(x = year, y = SOS)) +
   )
 ```
 
+When looking at the trend in SOS over the measurement period SOS has generally advanced over this period for multiple sites. For the 10% threshold this trend is statistically significant (p<0.05) for CH-Lae and US-Ha1, with CH-Lae showing a very clear advancement. For the 15% threshold only CH-Lae is statistically significant, again with a trend of very clear advancement.
+
 ## Identification of last spring forst after SOS
-Calculate LSF after SOS with 15% threshold
+Calculate LSF after SOS with 10% and 15% threshold
 ```{R}
 source("../R/GPP_LSF.R")
 
-lsf_results <- calculate_lsf_after_sos(
+#calculate LSF after SOS with 10% threshold
+lsf_results_10 <- calculate_lsf_after_sos(
+  df = df_ssa_core,
+  df_sos = df_sos_t10,
+  frost_threshold = -2,
+  temp_col = "TMIN_F_MDS"
+)
+df_lsf_daily_t10 <- lsf_results_10$daily
+df_lsf_summary_t10 <- lsf_results_10$yearly_summary
+
+# calculate LSF after SOS with 15% threshold
+lsf_results_15 <- calculate_lsf_after_sos(
   df = df_ssa_core, # use data frame where the first and last year have been removed
-  df_sos = df_sos,
+  df_sos = df_sos_t15,
   frost_threshold = -2,
   temp_col = "TMIN_F_MDS"
 )
 
-df_lsf_daily_t15 <- lsf_results$daily
-df_lsf_summary_t15 <- lsf_results$yearly_summary
+df_lsf_daily_t15 <- lsf_results_15$daily
+df_lsf_summary_t15 <- lsf_results_15$yearly_summary
 ```
 
-Using the 15% of maximum daily GPP as the threshold for the SOS results in many years not actually having frost events after the SOS. The threshold of 15% in Gu et al. (2022) as the threshold for the SOS was used in the context of analyzing drought effects. In Chen et al. (2023) a threshold of 10% of maximum daily GPP was used as the threshold for GPP. As this paper also analyzes the context of late spring frost the analysis of last spring forst after SOS will be repeated with a 10% threshold of maximum daily smoothed GPP as the definition of the SOS.
+Heatmap to visualize occurance of frost after SOS
+```{R}
+# combine threshold data frames
+df_lsf_thr_combined <- bind_rows(
+  df_lsf_summary_t10 |> mutate(threshold_label = "10%"),
+  df_lsf_summary_t15 |> mutate(threshold_label = "15%"))
+
+# df for heat map and plot
+df_lsf_heat <- df_lsf_thr_combined |>
+  mutate(
+    has_frost_after_sos = !is.na(n_frost_days_after_SOS_until_LSF),
+    event = ifelse(has_frost_after_sos, "Yes", "No"),
+    threshold_label = factor(threshold_label, levels = c("10%", "15%"))
+  )
+
+ggplot(df_lsf_heat, aes(x = year, y = site_id, fill = event)) +
+  geom_tile(color = "white", linewidth = 0.3) +
+  facet_grid(threshold_label ~ .) +
+  scale_fill_manual(values = c("Yes" = "#D55E00", "No" = "#F0F0F0")) +
+  scale_x_continuous(
+    breaks = sort(unique(df_lsf_heat$year))
+  ) +
+  labs(
+    title = "Occurrence of frost after SOS across sites and years",
+    subtitle = "10% and 15% stand for the two different SOS-thresholds",
+    x = "Year",
+    y = "Site",
+    fill = "Frost after SOS"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid = element_blank(),
+    axis.text.x = element_text(angle = 90, hjust = 1)
+  )
+```
+
+Using 15% of maximum smoothed daily GPP as the threshold for SOS results in many years without frost events after SOS, as shown in the heatmap above. This is noteworthy because the 15% threshold proposed by Gu et al. (2022) was used in the context of analysing drought effects rather than late spring frost exposure. By contrast, Chen et al. (2023), who also considered late spring frost, used a lower threshold of 10% of maximum smoothed daily GPP. Repeating the analysis with this lower threshold increased the number of years identified with frost after SOS across all sites. This indicates that the estimated occurrence of post-SOS frost is sensitive to the chosen GPP threshold, with the 10% threshold capturing more years in which frost occurs after the onset of seasonal photosynthetic activity.
+
+However, even when applying the 10% threshold, many years still show no frost events after SOS. Strong site-specific differences are evident. The two sites with the fewest post-SOS frost years are DE-Hai and US-Ha1, and the effect of threshold choice is particularly pronounced at these sites, where post-SOS frost is generally rare. In contrast, other sites, especially BE-Vie and DE-Tha, show frost after SOS in a much larger proportion of years.
+
+An additional important result is that all European sites show a frost event after SOS in 2017. This suggests that the approach consistently captures the well-documented late spring frost event of that year across sites.
+
+To gain an understanding how many days lay between the SOS and the last frost event the distribution of doy_last_frost - SOS will be calculate for all years with a frost event after SOS
+```{R}
+# filter out years with frost after SOS
+df_lsf_events <- df_lsf_thr_combined |>
+  mutate(has_frost_after_sos = !is.na(n_frost_days_after_SOS_until_LSF))|>
+  filter(has_frost_after_sos) |>
+  mutate(
+    days_between_sos_and_lsf = last_frost_doy - SOS,
+    threshold_label = factor(threshold_label, levels = c("10%", "15%"))
+  )
+
+y_max <- ceiling(max(df_lsf_events$days_between_sos_and_lsf, na.rm = TRUE) / 10) * 10
+
+ggplot(df_lsf_events, aes(x = site_id, y = days_between_sos_and_lsf, fill = threshold_label)) +
+  geom_boxplot(position = position_dodge(width = 0.8)) +
+  scale_y_continuous(
+    limits = c(0, y_max),
+    breaks = seq(0, y_max, by = 10)
+  ) +
+  labs(
+    title = "Time between SOS and last spring frost",
+    subtitle = "Only years with at least one frost event after SOS",
+    x = "Site",
+    y = "Days between SOS and last frost",
+    fill = "Threshold"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank()
+  )
+```
+
+Overview on covered years and number of years with events for each site
+```{R}
+df_lsf_event_counts <- df_lsf_thr_combined|>
+  mutate(has_frost_after_sos = !is.na(n_frost_days_after_SOS_until_LSF))|>
+  group_by(site_id, threshold_label) |>
+  summarise(
+    n_total_years = n(),
+    n_event_years = sum(has_frost_after_sos, na.rm = TRUE),
+    percentage_event_years = round((n_event_years/n_total_years)*100,2),
+    .groups = "drop"
+  ) |>
+  arrange(site_id, threshold_label)
+
+df_lsf_event_counts
+```
+
+The boxplots show that sites with frequent post-SOS frost events also tend to exhibit a larger interannual variation in the number of days between SOS and the last spring frost. This is especially the case for BE-Vie and DE-Tha, where the interval between SOS and last frost can be several weeks and varies strongly between years. CH-Lae shows smaller but still variable intervals, while DE-Hai and US-Ha1 mostly exhibit short intervals when such events occur. Interpretation of the boxplots for DE-Hai and US-Ha1 should be treated with caution because they are based on very few event years. For these sites, the boxplots are mainly descriptive and do not allow robust conclusions about the full distribution of post-SOS frost timing.
+
+In general, the 10% threshold results in larger values of days between SOS and last spring frost than the 15% threshold. This is expected because the lower threshold defines SOS earlier in the season. Consequently, it expands the time window during which frost events can occur after SOS.
+
+## Analysis of GPP after last frost across European sites
+Filter all years with last frost event after SOS for all European sites
+```{R}
+eu_sites <- c("BE-Vie", "CH-Lae", "DE-Hai", "DE-Tha")
+
+# yearly event information based on the 10% threshold
+df_events <- df_lsf_summary_t10 |>
+  filter(site_id %in% eu_sites) |>
+  filter(!is.na(last_frost_after_sos_doy)) |>
+  select(site_id, year, last_frost_after_sos_doy)
+
+# join event years with GPP data
+df_event_base <- df_ssa_core |>
+  filter(site_id %in% eu_sites) |>
+  inner_join(df_events, by = c("site_id", "year"))
+
+# all years as reference of GPP
+df_ref_base <- df_ssa_core |>
+  filter(site_id %in% eu_sites)
+```
+
+Combine daily GPP data with event years
+```{R}
+# load functions to calculate GPP after LSF
+source("../R/GPP_after_LSF.R")
+
+# reference windows for GPP after last frost
+windows_tbl <- tibble(
+  window_label = c("1-15", "16-30", "31-60", "61-90", "91-180"),
+  start_day = c(1, 16, 31, 61, 91),
+  end_day   = c(15, 30, 60, 90, 180)
+)
+
+# create data frame for GPP after LSF in event year
+df_event_gpp <- pmap_dfr(
+  list(windows_tbl$window_label, windows_tbl$start_day, windows_tbl$end_day),
+  function(window_label, start_day, end_day) {
+    calc_event_window_gpp(
+      data = df_event_base,
+      start_day = start_day,
+      end_day = end_day,
+      window_label = window_label
+    )
+  }
+)
+
+# create data frame for GPP in same timeperiod as after LSF over all years
+df_reference_all <- pmap_dfr(
+  list(windows_tbl$window_label, windows_tbl$start_day, windows_tbl$end_day),
+  function(window_label, start_day, end_day) {
+    calc_reference_window_gpp(
+      event_data = df_event_base,
+      ref_data = df_ref_base,
+      start_day = start_day,
+      end_day = end_day,
+      window_label = window_label
+    )
+  }
+)
+
+# create data frame for GPP in same timeperiod as after LSF over 5 years before event
+df_reference_prev5 <- pmap_dfr(
+  list(windows_tbl$window_label, windows_tbl$start_day, windows_tbl$end_day),
+  function(window_label, start_day, end_day) {
+    calc_reference_window_gpp_prev5(
+      event_data = df_event_base,
+      ref_data = df_ref_base,
+      start_day = start_day,
+      end_day = end_day,
+      window_label = window_label
+    )
+  }
+)
+
+# data frame with anomalies in GPP after LSF over all years
+df_gpp_compare <- df_event_gpp |>
+  rename(event_year = year) |>
+  left_join(
+    df_reference_all,
+    by = c("site_id", "event_year", "post_lsf_window")
+  ) |>
+  mutate(
+    anomaly_gpp_dt = mean_gpp_dt - ref_gpp_dt,
+    anomaly_gpp_smoothed = mean_gpp_smoothed - ref_gpp_smoothed,
+    rel_anomaly_gpp_dt = 100 * (mean_gpp_dt - ref_gpp_dt) / ref_gpp_dt,
+    rel_anomaly_gpp_smoothed = 100 * (mean_gpp_smoothed - ref_gpp_smoothed) / ref_gpp_smoothed
+  )
+
+# data frame with anomalies in GPP after LSF compared to 5 years before event
+df_gpp_compare_prev5 <- df_event_gpp |>
+  rename(event_year = year) |>
+  left_join(
+    df_reference_prev5,
+    by = c("site_id", "event_year", "post_lsf_window")
+  ) |>
+  mutate(
+    anomaly_gpp_dt_prev5 = mean_gpp_dt - ref5_gpp_dt,
+    anomaly_gpp_smoothed_prev5 = mean_gpp_smoothed - ref5_gpp_smoothed,
+    rel_anomaly_gpp_dt_prev5 = 100 * (mean_gpp_dt - ref5_gpp_dt) / ref5_gpp_dt,
+    rel_anomaly_gpp_smoothed_prev5 = 100 * (mean_gpp_smoothed - ref5_gpp_smoothed) / ref5_gpp_smoothed
+  )
+# only keep the events that had 5 years before the event because we work with 5 year mean
+df_gpp_compare_prev5_valid <- df_gpp_compare_prev5 |>
+  filter(n_ref_years == 5)
+
+```
+
+Plot the relative anomaly in GPP after LSF for all events
+```{R}
+ggplot(df_gpp_compare, aes(x = post_lsf_window, y = rel_anomaly_gpp_smoothed, group = event_year)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_point() +
+  geom_line() +
+  facet_wrap(~site_id) +
+  labs(
+    title = "Relative anomaly of smoothed daily GPP after last spring frost",
+    x = "Days after last spring frost",
+    y = "Relative GPP anomaly (%)"
+  ) +
+  theme_minimal(base_size = 12)
+```
+
+## Analyze GPP development after LSF for 2017 event
+*Analysis of anomalies compared to average of all site years:*
+
+Plot relative anomaly of GPP
+```{R}
+df_gpp_compare_2017 <- df_gpp_compare |>
+  filter(event_year == 2017) |>
+  mutate(
+    post_lsf_window = factor(
+      post_lsf_window,
+      levels = c("1-15", "16-30", "31-60", "61-90", "91-180")
+    )
+  )
+ggplot(df_gpp_compare_2017, aes(x = post_lsf_window, y = rel_anomaly_gpp_smoothed, group = site_id)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_point(size = 2) +
+  geom_line() +
+  facet_wrap(~site_id) +
+  labs(
+    title = "Relative anomaly of smoothed daily GPP after last spring frost in 2017",
+    x = "Days after last spring frost",
+    y = "Relative GPP anomaly (%)"
+  ) +
+  theme_minimal(base_size = 12)
+```
+
+Plot the course of mean smoothed daily GPP after LSF 2017 compared to mean smoothed daily GPP over all years
+```{R}
+df_gpp_compare_2017_long <- df_gpp_compare_2017 |>
+  select(site_id, post_lsf_window, mean_gpp_smoothed, ref_gpp_smoothed) |>
+  pivot_longer(
+    cols = c(mean_gpp_smoothed, ref_gpp_smoothed),
+    names_to = "series",
+    values_to = "gpp"
+  ) |>
+  mutate(
+    series = recode(
+      series,
+      mean_gpp_smoothed = "Event year 2017",
+      ref_gpp_smoothed = "Mean of all other years"
+    )
+  )
+
+ggplot(df_gpp_compare_2017_long, aes(x = post_lsf_window, y = gpp, group = series, color = series)) +
+  geom_point(size = 2) +
+  geom_line() +
+  facet_wrap(~site_id) +
+  labs(
+    title = "Smoothed GPP after last spring frost: 2017 vs. long-term mean",
+    x = "Days after last spring frost",
+    y = "Mean smoothed daily GPP",
+    color = ""
+  ) +
+  theme_minimal(base_size = 12)
+```
+
+Boxplot smoothed daily GPP
+```{R}
+ggplot(df_gpp_compare_2017_long, aes(x = post_lsf_window, y = gpp, fill = series)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~site_id) +
+  labs(
+    title = "Smoothed GPP after last spring frost: 2017 vs. long-term mean",
+    x = "Days after last spring frost",
+    y = "Mean smoothed daily GPP",
+    fill = ""
+  ) +
+  theme_minimal(base_size = 12)
+```
+
+*Analysis of anomalies compared to 5 year average previous to event:*
+
+Plot relative anomaly of GPP
+```{R}
+df_gpp_compare_prev5_2017 <- df_gpp_compare_prev5 |>
+  filter(event_year == 2017) |>
+  mutate(
+    post_lsf_window = factor(
+      post_lsf_window,
+      levels = c("1-15", "16-30", "31-60", "61-90", "91-180")
+    )
+  )
+
+  ggplot(df_gpp_compare_prev5_2017, aes(x = post_lsf_window, y = rel_anomaly_gpp_smoothed_prev5, group = site_id)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_point(size = 2) +
+  geom_line() +
+  facet_wrap(~site_id) +
+  labs(
+    title = "Relative anomaly of smoothed daily GPP in 2017 vs. mean of the previous 5 years",
+    x = "Days after last spring frost",
+    y = "Relative GPP anomaly (%)"
+  ) +
+  theme_minimal(base_size = 12)
+```
+
+Plot the course of mean smoothed daily GPP after LSF 2017 compared to mean smoothed daily GPP over previous 5 years
+```{R}
+df_gpp_compare_prev5_2017_long <- df_gpp_compare_prev5_2017 |>
+  select(site_id, post_lsf_window, mean_gpp_smoothed, ref5_gpp_smoothed) |>
+  pivot_longer(
+    cols = c(mean_gpp_smoothed, ref5_gpp_smoothed),
+    names_to = "series",
+    values_to = "gpp"
+  ) |>
+  mutate(
+    series = recode(
+      series,
+      mean_gpp_smoothed = "Event year 2017",
+      ref5_gpp_smoothed = "Mean of previous 5 years"
+    )
+  )
+
+ggplot(df_gpp_compare_prev5_2017_long, aes(x = post_lsf_window, y = gpp, group = series, color = series)) +
+  geom_point(size = 2) +
+  geom_line() +
+  facet_wrap(~site_id) +
+  labs(
+    title = "Smoothed GPP after last spring frost: 2017 vs. 5-year-mean",
+    x = "Days after last spring frost",
+    y = "Mean smoothed daily GPP",
+    color = ""
+  ) +
+  theme_minimal(base_size = 12)
+```
+
+Boxplot smoothed daily GPP
+```{R}
+ggplot(df_gpp_compare_prev5_2017_long, aes(x = post_lsf_window, y = gpp, fill = series)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~site_id) +
+  labs(
+    title = "Smoothed GPP after last spring frost: 2017 vs. 5 year mean",
+    x = "Days after last spring frost",
+    y = "Mean smoothed daily GPP",
+    fill = ""
+  ) +
+  theme_minimal(base_size = 12)
+```
+
+*Interpretation of result on the analysis of 2017 event*
+
+**Introduction to analysis**
+
+To gain an understanding of the effect of LSF after SOS the known event in 2017 was analysed for all 4 European sites. For this the development of smoothed daily GPP after the event was first compared to the mean smoothed daily GPP over all the site years for the period in the following 180 days after the event. In a second step this comparison was repeated but with the mean smoothed daily GPP of the 5 years previous to the event. The analysis with the 5 years previous to the event was included, because the mean over all site years could potentially be influenced by long term trends in GPP. 
+
+**Analysis of GPP post LSF compared to average over all site years**
+
 
 
 ## Literature
