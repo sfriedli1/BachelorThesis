@@ -1,0 +1,67 @@
+---
+title: "GDD_Analysis_Fdk"
+output: html_document
+---
+
+```{R}
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+library(stringr)
+library(broom)
+library(tibble)
+```
+
+
+## Objective
+Extend the GDD analysis to all stations in the Fluxdatakit data set that have at least 15 years of recordings. Increasing the number of stations should allow to see regional patterns in GDD at last frost.
+
+Read in parquet file
+```{R}
+df_all_stations <- read_parquet("../data/data_fdk_parquet/fdk.parquet")
+```
+
+## Analyze yearly trajectory of GDD
+
+Calculate GDD
+```{R}
+source("../R/GDD.R")
+df_GDD <- calculate_gdd(df_all_stations)
+```
+
+Plot the mean GPP over time series
+```{R}
+# Filter out 29th of February, so that every year has 365 days
+df_gdd_no_leap <- df_GDD %>%
+  mutate(
+    year = year(TIMESTAMP),
+    month = month(TIMESTAMP),
+    day = day(TIMESTAMP)
+  ) %>%
+  filter(!(month == 2 & day == 29)) %>%
+  group_by(site_id, year) %>%
+  arrange(TIMESTAMP, .by_group = TRUE) %>%
+  mutate(DOY365 = row_number()) %>%
+  ungroup()
+df_gdd_mean <- df_gdd_no_leap %>%
+  group_by(site_id, DOY365) %>%
+  summarise(
+    mean_GDD = mean(GDD, na.rm = TRUE),
+    .groups = "drop"
+  )
+## Plot mean seasonal trajectory
+ggplot(df_gdd_mean, aes(x = DOY365, y = mean_GDD)) +
+  geom_line(linewidth = 0.8) +
+  facet_wrap(~ site_id, ncol = 3, scales = "free_y") +
+  scale_y_continuous(expand = expansion(mult = c(0.05,0.1)))+
+  labs(
+    x = "Day of year",
+    y = "Mean GDD",
+    title = "Mean seasonal GDD trajectory by site"
+  ) +
+  theme_minimal()
+```
+
+
+## Analyze GDD at last frost

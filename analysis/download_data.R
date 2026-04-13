@@ -15,7 +15,9 @@ library(lubridate)
 # - fdk_site_info.csv
 # - FLUXDATAKIT_FLUXNET.tar.gz
 
+# ------------------------------------------------------------------------------
 # Downloading data for the following stations: BE-Vie, DE-Hai, DE-Tha, US-Ha1, CH-Lae
+# ------------------------------------------------------------------------------
 stations <- c(
   "BE-Vie",
   "DE-Hai",
@@ -51,3 +53,21 @@ untar(
   exdir = "data/test_data"
 )
 
+# ------------------------------------------------------------------------------
+# Downloading the complete FLUXDATAKIT dataset
+# ------------------------------------------------------------------------------
+tar_file <- "data_raw/FLUXDATAKIT_FLUXNET.tar.gz"
+
+files_in_tar <- tryCatch(
+  untar(tar_file, list = TRUE),
+  error = function(e) {
+    stop(paste("Could not list contents of tar archive:", e$message))
+  }
+)
+
+# create output directory for extracted files
+dir.create("data_raw/all_fdk_sites", recursive = TRUE, showWarnings = FALSE)
+
+# extract all files in tar_file
+untar(tar_file, 
+      exdir = "data_raw/all_fdk_sites")
