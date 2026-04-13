@@ -793,7 +793,7 @@ df_gpp_compare_prev5_2017 <- df_gpp_compare_prev5 |>
 ```
 
 
-*Interpretation of result on the analysis of 2017 event*
+## Interpretation of result on the analysis of 2017 event
 
 **Introduction to analysis**
 
