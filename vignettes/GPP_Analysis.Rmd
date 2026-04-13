@@ -577,7 +577,7 @@ ggplot(df_gpp_compare, aes(x = post_lsf_window, y = rel_anomaly_gpp_smoothed, gr
 ## Analyze GPP development after LSF for 2017 event
 *Analysis of anomalies compared to average of all site years:*
 
-Plot relative anomaly of GPP
+Plot relative anomaly of smoothed GPP
 ```{R}
 df_gpp_compare_2017 <- df_gpp_compare |>
   filter(event_year == 2017) |>
@@ -644,11 +644,64 @@ ggplot(df_gpp_compare_2017_long, aes(x = post_lsf_window, y = gpp, fill = series
   theme_minimal(base_size = 12)
 ```
 
-*Analysis of anomalies compared to 5 year average previous to event:*
-
 Plot relative anomaly of GPP
 ```{R}
-df_gpp_compare_prev5_2017 <- df_gpp_compare_prev5 |>
+df_gpp_compare_2017 <- df_gpp_compare |>
+  filter(event_year == 2017) |>
+  mutate(
+    post_lsf_window = factor(
+      post_lsf_window,
+      levels = c("1-15", "16-30", "31-60", "61-90", "91-180")
+    )
+  )
+ggplot(df_gpp_compare_2017, aes(x = post_lsf_window, y = rel_anomaly_gpp_dt, group = site_id)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_point(size = 2) +
+  geom_line() +
+  facet_wrap(~site_id) +
+  labs(
+    title = "Relative anomaly of daily GPP after last spring frost in 2017",
+    x = "Days after last spring frost",
+    y = "Relative GPP anomaly (%)"
+  ) +
+  theme_minimal(base_size = 12)
+```
+
+Plot the course of mean daily GPP after LSF 2017 compared to mean daily GPP over all years
+```{R}
+df_gpp_compare_2017_long <- df_gpp_compare_2017 |>
+  select(site_id, post_lsf_window, mean_gpp_dt, ref_gpp_dt) |>
+  pivot_longer(
+    cols = c(mean_gpp_dt, ref_gpp_dt),
+    names_to = "series",
+    values_to = "gpp"
+  ) |>
+  mutate(
+    series = recode(
+      series,
+      mean_gpp_dt = "Event year 2017",
+      ref_gpp_dt = "Mean of all other years"
+    )
+  )
+
+ggplot(df_gpp_compare_2017_long, aes(x = post_lsf_window, y = gpp, group = series, color = series)) +
+  geom_point(size = 2) +
+  geom_line() +
+  facet_wrap(~site_id) +
+  labs(
+    title = "Daily GPP after last spring frost: 2017 vs. long-term mean",
+    x = "Days after last spring frost",
+    y = "Mean daily GPP",
+    color = ""
+  ) +
+  theme_minimal(base_size = 12)
+```
+
+*Analysis of anomalies compared to 5 year average previous to event:*
+
+Plot relative anomaly of smoothed GPP
+```{R}
+df_gpp_compare_prev5_2017 <- df_gpp_compare_prev5_valid |>
   filter(event_year == 2017) |>
   mutate(
     post_lsf_window = factor(
@@ -714,6 +767,32 @@ ggplot(df_gpp_compare_prev5_2017_long, aes(x = post_lsf_window, y = gpp, fill = 
   theme_minimal(base_size = 12)
 ```
 
+Plot relative anomaly of GPP
+```{R}
+df_gpp_compare_prev5_2017 <- df_gpp_compare_prev5 |>
+  filter(event_year == 2017) |>
+  mutate(
+    post_lsf_window = factor(
+      post_lsf_window,
+      levels = c("1-15", "16-30", "31-60", "61-90", "91-180")
+    )
+  )
+
+  ggplot(df_gpp_compare_prev5_2017, aes(x = post_lsf_window, y = rel_anomaly_gpp_dt_prev5, group = site_id)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_point(size = 2) +
+  geom_line() +
+  facet_wrap(~site_id) +
+  labs(
+    title = "Relative anomaly of daily GPP in 2017 vs. mean of the previous 5 years",
+    x = "Days after last spring frost",
+    y = "Relative GPP anomaly (%)"
+  ) +
+  theme_minimal(base_size = 12)
+
+```
+
+
 *Interpretation of result on the analysis of 2017 event*
 
 **Introduction to analysis**
@@ -722,6 +801,15 @@ To gain an understanding of the effect of LSF after SOS the known event in 2017 
 
 **Analysis of GPP post LSF compared to average over all site years**
 
+The comparison of mean smoothed daily GPP after the 2017 last spring frost with the mean over all other site years suggests that the frost event was followed by a reduction in post-LSF GPP at several European sites, particularly during the early time windows after the event. Negative relative anomalies in the first windows after LSF indicate that photosynthetic activity in 2017 remained below the site-specific long-term mean immediately after the frost event. However, the magnitude and persistence of this reduction differed among sites. CH-Lae did not show any reduction at all in the smoothed daily GPP after the frost event compared to the long time mean. Across all sites the relative anomaly of smoothed daily GPP was positive again in the time window of 31-60 days after the event. Indicating that the photosynthetic activity recovered already from the frost impacts. 
+
+Comparing the unsmoothed daily GPP average over the time windows after the event with the long time average, there are more negative relative anomalies across three of the four sites with values reaching -40% at DE-Tha and DE-Hai in the time window of the first 15 days after the frost. But even when looking at unsmoothed daily GPP there are positive GPP anomalies already again in the time window of 31-60 days after the frost. 
+
+**Analysis of GPP post LSF compared to average of previous 5 years**
+
+Repeating the analysis with the mean of the five years preceding 2017 as the reference yields a similar overall picture, but provides a more temporally local comparison. This is important because the long-term mean over all site years may be influenced by gradual changes in productivity over time. The plots show that the post-LSF GPP in 2017 was also lower than the mean of the previous five years at several sites, especially in the early time windows after the frost event. This suggests that the reduced GPP after LSF in 2017 is not only an artifact of comparison with a long-term climatology, but is also evident relative to the more recent pre-event period. Two sites (DE-Tha and DE-Hai) show more negative relative anomalies when compared with the average over the previous 5 years compared to the average over all the site years.
+
+Comparing the unsmoothed daily GPP average of the previous 5 years with the event year. The patterns is very similar for DE-Tha and DE-Hai. But it changes for BE-Vie and CH-Lae where there is now also a negative relative anomaly in the window of 16-30 days after the event. This dip into a negative relative anomaly was not observable with the smoothed daily GPP data. 
 
 
 ## Literature
