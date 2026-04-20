@@ -11,6 +11,7 @@ library(lubridate)
 library(stringr)
 library(broom)
 library(tibble)
+library(arrow)
 ```
 
 
@@ -53,7 +54,7 @@ df_gdd_mean <- df_gdd_no_leap %>%
 ## Plot mean seasonal trajectory
 ggplot(df_gdd_mean, aes(x = DOY365, y = mean_GDD)) +
   geom_line(linewidth = 0.8) +
-  facet_wrap(~ site_id, ncol = 3, scales = "free_y") +
+  facet_wrap(~ site_id, ncol = 4, scales = "free_y") +
   scale_y_continuous(expand = expansion(mult = c(0.05,0.1)))+
   labs(
     x = "Day of year",
@@ -65,3 +66,252 @@ ggplot(df_gdd_mean, aes(x = DOY365, y = mean_GDD)) +
 
 
 ## Analyze GDD at last frost
+**Calculate GDD at last frost**
+```{R}
+source("../R/GDD_LSF.R")
+result <- calculate_gdd_lsf(df_all_stations)
+df_spring_daily <- result$spring_daily
+df_yearly_summary <- result$yearly_summary
+```
+
+**Plot 5 year average block over time series of each station**
+```{R}
+# Define 5-year blocks
+start_year <- min(df_spring_daily$year, na.rm = TRUE)
+
+df_gdd_blocks <- df_spring_daily |>
+  mutate(
+    block_start = start_year + 5 * ((year - start_year) %/% 5),
+    block_end   = block_start + 4,
+    block_label = paste0(block_start, "-", block_end)
+  )
+
+# only keep complete 5-year blocks
+df_block_counts <- df_gdd_blocks |>
+  distinct(site_id, year, block_label, block_start) |>
+  count(site_id, block_label, block_start, name = "n_years")
+
+df_gdd_blocks <- df_gdd_blocks |>
+  left_join(df_block_counts, by = c("site_id", "block_label", "block_start")) %>%
+  filter(n_years == 5)
+
+# Mean per station, 5-year-block and DOY
+df_gdd_5yr_mean <- df_gdd_blocks |>
+  group_by(site_id, block_label, block_start, DOY) |>
+  summarise(
+    mean_GDD = mean(GDD, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(block_start)
+
+# Faktor-Level chronologisch setzen
+block_levels <- df_gdd_5yr_mean |>
+  distinct(block_label, block_start) |>
+  arrange(block_start) |>
+  pull(block_label)
+
+df_gdd_5yr_mean <- df_gdd_5yr_mean |>
+  mutate(block_label = factor(block_label, levels = block_levels))
+
+# Define color scheme
+plot_colors <- c(
+  "#0072B2", # blue
+  "#D55E00", # vermillion
+  "#009E73", # bluish green
+  "#CC79A7", # reddish purple
+  "#E69F00", # orange
+  "#56B4E9", # sky blue
+  "#F0E442", # yellow
+  "#000000"  # black
+)
+
+ggplot(
+  df_gdd_5yr_mean,
+  aes(x = DOY, y = mean_GDD, color = block_label, group = block_label)
+) +
+  geom_line(linewidth = 1) +
+  facet_wrap(~ site_id, ncol = 4, scales = "free_y") +
+  scale_y_continuous(expand = expansion(mult = c(0.05,0.1)))+
+  scale_color_manual(values = plot_colors[seq_len(nlevels(df_gdd_5yr_mean$block_label))]) +
+  labs(
+    x = "Day of year",
+    y = "Mean GDD",
+    color = "5-year block",
+    title = "5-year mean spring GDD trajectories by site"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "bottom",
+    panel.grid.minor = element_blank()
+  )
+```
+
+Boxplot GDD per site:
+```{R}
+site_groups <- tibble(
+  site_id = unique(df_yearly_summary$site_id),
+  group = rep(1:ceiling(length(unique(df_yearly_summary$site_id)) / 4), each = 4)[1:length(unique(df_yearly_summary$site_id))]
+)
+
+df_plot <- df_yearly_summary |>
+  left_join(site_groups, by = "site_id")
+df_plot <- df_plot |>
+  filter(is.finite(GDD_at_LSF)) |>
+  filter(!site_id %in% c("AU-Tum","US-ARM","US-Wkg")) # ausgeschlossen, weil haben (sehr) aussergewöhnlich hohe GDD Werte
+
+ggplot(df_plot, aes(x = site_id, y = GDD_at_LSF)) +
+  geom_boxplot(outlier.shape = NA) +
+  facet_wrap(~group, scales = "free_x") +
+  coord_cartesian(ylim = c(0, 300)) +
+  labs(
+    x = "Site",
+    y = "GDD at LSF",
+    title = "Distribution of GDD at LSF by site"
+  ) +
+  theme_minimal(base_size = 12)
+```
+
+Note: IL-Yat only has one black line, because only once frost. 
+
+Plot GDD at last frost for each site over the analysis period 1991-2020:
+```{R}
+dir.create("../figures/gdd_fdk", recursive = TRUE, showWarnings = FALSE)
+
+sites <- unique(df_yearly_summary$site_id)
+
+for (s in sites) {
+  
+  df_plot <- df_yearly_summary |>
+    filter(
+      site_id == s,
+      !is.na(year),
+      !is.na(GDD_at_LSF)
+    )
+  
+  if (nrow(df_plot) < 3) next
+  
+  mod <- lm(GDD_at_LSF ~ year, data = df_plot)
+  
+  slope <- coef(mod)[["year"]]
+  p_value <- summary(mod)$coefficients["year", "Pr(>|t|)"]
+  
+  label_text <- paste0(
+    "slope = ", round(slope, 2),
+    "\n",
+    "p = ", signif(p_value, 2)
+  )
+  
+  p <- ggplot(df_plot, aes(x = year, y = GDD_at_LSF)) +
+    geom_point(alpha = 0.7, size = 2) +
+    geom_smooth(method = "lm", se = TRUE, color = "#0072B2", linewidth = 0.9) +
+    geom_text(
+      aes(x = -Inf, y = Inf),
+      label = label_text,
+      hjust = -0.1,
+      vjust = 1.1,
+      size = 4,
+      inherit.aes = FALSE
+    ) +
+    scale_x_continuous(
+      breaks = seq(1990, 2020, by = 5),
+      limits = c(1990, 2020)
+    ) +
+    labs(
+      x = "Year",
+      y = "GDD at LSF",
+      title = paste("Interannual variation in GDD at the last spring frost -", s)
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      panel.grid.minor = element_blank()
+    )
+  
+  ggsave(
+    filename = paste0("../figures/gdd_fdk/", s, "_gdd_lsf.png"),
+    plot = p,
+    width = 7,
+    height = 5,
+    dpi = 300
+  )
+}
+```
+
+Canada sometimes show negative trends, but they are mostly not statistically significant. 
+Switzerland all show positive trends, but not all are statistically significant. 
+Germany show no trend. 
+Denmark negative trend but not quite statistically significant. 
+Spain no significant trend. 
+Finland no significant trend.
+France has sites with positive and negative trends, not significant.
+Italy has positive trends, but mostly not significant. 
+Netherlands no trend.
+Sweden negative trend, almost statistically significant. 
+USA has sites with positive and negative trends. One site with statistically significant positive trend and one site with statistically significant negative trend. More sites show positive trends, then negative trends. 
+
+Calculation of z-Score
+```{R}
+df_anomalies <- df_yearly_summary %>%
+  group_by(site_id) %>%
+  mutate(
+    GDD_at_LSF_mean = mean(GDD_at_LSF, na.rm = TRUE),
+    GDD_at_LSF_sd   = sd(GDD_at_LSF, na.rm = TRUE),
+    GDD_at_LSF_z    = (GDD_at_LSF - GDD_at_LSF_mean) / GDD_at_LSF_sd,
+    
+  ) %>%
+  ungroup()
+```
+
+Plot z-Score
+```{R}
+dir.create("../figures/gdd_anomalies_fdk", recursive = TRUE, showWarnings = FALSE)
+
+sites <- unique(df_anomalies$site_id)
+
+for (s in sites) {
+  
+  df_plot <- df_anomalies |>
+    filter(
+      site_id == s,
+      !is.na(year),
+      !is.na(GDD_at_LSF_z)
+    )
+  
+  if (nrow(df_plot) == 0) next
+  
+  p <- ggplot(df_plot, aes(x = year, y = GDD_at_LSF_z)) +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    geom_hline(yintercept = c(-1, 1), linetype = "dotted") +
+    geom_point(aes(color = highlight), size = 2) +
+    scale_color_manual(
+      values = c(
+        "Other years" = "grey60",
+        "Event year US" = "#D55E00",
+        "Event year EU" = "blue"
+      )
+    ) +
+    labs(
+      x = "Year",
+      y = "z-score of GDD at LSF",
+      color = "",
+      title = paste("Standardized anomalies of GDD at the last spring frost -", s)
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      panel.grid.minor = element_blank(),
+      legend.position = "bottom"
+    )
+  
+  ggsave(
+    filename = paste0("../figures/gdd_anomalies_fdk/", s, "_gdd_lsf_z.png"),
+    plot = p,
+    width = 7,
+    height = 5,
+    dpi = 300
+  )
+}
+```
+
+A number of European sites show exceptional z-scores in 2017 which corresponds with a known late spring frost event in that year. Only one US site shows an exceptional z-score in 2010. So the known late spring frost event in North-eastern US is not visible in this data. 
+
+
+I have to discard all the sites that are not forest sites!!
