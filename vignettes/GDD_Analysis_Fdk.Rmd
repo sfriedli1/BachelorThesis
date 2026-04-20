@@ -20,7 +20,7 @@ Extend the GDD analysis to all stations in the Fluxdatakit data set that have at
 
 Read in parquet file
 ```{R}
-df_all_stations <- read_parquet("../data/data_fdk_parquet/fdk.parquet")
+df_all_stations <- read_parquet("../data/data_fdk_parquet/fdk_forest_15years.parquet")
 ```
 
 ## Analyze yearly trajectory of GDD
@@ -72,6 +72,13 @@ source("../R/GDD_LSF.R")
 result <- calculate_gdd_lsf(df_all_stations)
 df_spring_daily <- result$spring_daily
 df_yearly_summary <- result$yearly_summary
+# add land use information to yearly summary
+site_landuse <- df_all_stations |>
+  filter(!is.na(igbp_land_use)) |>
+  distinct(site_id, igbp_land_use)
+
+df_yearly_summary <- df_yearly_summary |>
+  left_join(site_landuse, by = "site_id")
 ```
 
 **Plot 5 year average block over time series of each station**
@@ -125,25 +132,47 @@ plot_colors <- c(
   "#000000"  # black
 )
 
-ggplot(
-  df_gdd_5yr_mean,
-  aes(x = DOY, y = mean_GDD, color = block_label, group = block_label)
-) +
-  geom_line(linewidth = 1) +
-  facet_wrap(~ site_id, ncol = 4, scales = "free_y") +
-  scale_y_continuous(expand = expansion(mult = c(0.05,0.1)))+
-  scale_color_manual(values = plot_colors[seq_len(nlevels(df_gdd_5yr_mean$block_label))]) +
-  labs(
-    x = "Day of year",
-    y = "Mean GDD",
-    color = "5-year block",
-    title = "5-year mean spring GDD trajectories by site"
+# create plot for each site
+dir.create("../figures/5yearGDD", recursive = TRUE, showWarnings = FALSE)
+
+sites <- unique(df_gdd_5yr_mean$site_id)
+
+for (s in sites) {
+  
+  df_plot <- df_gdd_5yr_mean |>
+    filter(site_id == s)
+  
+  if (nrow(df_plot) == 0) next
+  
+  n_blocks <- dplyr::n_distinct(df_plot$block_label)
+  
+  p <- ggplot(
+    df_plot,
+    aes(x = DOY, y = mean_GDD, color = block_label, group = block_label)
   ) +
-  theme_minimal(base_size = 12) +
-  theme(
-    legend.position = "bottom",
-    panel.grid.minor = element_blank()
+    geom_line(linewidth = 1) +
+    scale_y_continuous(expand = expansion(mult = c(0.05, 0.1))) +
+    scale_color_manual(values = plot_colors[seq_len(n_blocks)]) +
+    labs(
+      x = "Day of year",
+      y = "Mean GDD",
+      color = "5-year block",
+      title = paste("5-year mean spring GDD trajectories -", s)
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      legend.position = "bottom",
+      panel.grid.minor = element_blank()
+    )
+  
+  ggsave(
+    filename = paste0("../figures/5yearGDD/", s, "_5year_mean_GDD.png"),
+    plot = p,
+    width = 7,
+    height = 5,
+    dpi = 300
   )
+}
 ```
 
 Boxplot GDD per site:
@@ -265,6 +294,15 @@ Plot z-Score
 ```{R}
 dir.create("../figures/gdd_anomalies_fdk", recursive = TRUE, showWarnings = FALSE)
 
+df_anomalies <- df_anomalies |>
+  mutate(
+    highlight = case_when(
+      year == 2010 ~ "Event year US",
+      year == 2017 ~ "Event year EU",
+      TRUE ~ "Other years"
+    )
+  )
+
 sites <- unique(df_anomalies$site_id)
 
 for (s in sites) {
@@ -313,5 +351,3 @@ for (s in sites) {
 
 A number of European sites show exceptional z-scores in 2017 which corresponds with a known late spring frost event in that year. Only one US site shows an exceptional z-score in 2010. So the known late spring frost event in North-eastern US is not visible in this data. 
 
-
-I have to discard all the sites that are not forest sites!!
