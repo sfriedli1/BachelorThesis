@@ -16,7 +16,7 @@ library(arrow)
 
 
 ## Objective
-Extend the GDD analysis to all stations in the Fluxdatakit data set that have at least 15 years of recordings. Increasing the number of stations should allow to see regional patterns in GDD at last frost.
+Extend the GDD analysis to all stations from Evergreen Needleleaf Forest (ENF), Decidious Boreal Forest (DBF), Decidious Needleleaf Forest (DNF) and Mixed Forest (MF) sites in the Fluxdatakit data set that have at least 15 years of recordings. Increasing the number of stations should allow to see regional patterns in GDD at last frost.
 
 Read in parquet file
 ```{R}
@@ -351,7 +351,7 @@ dir.create("../figures/gdd_anomalies_fdk", recursive = TRUE, showWarnings = FALS
 df_anomalies <- df_anomalies |>
   mutate(
     highlight = case_when(
-      year == 2010 ~ "Event year US",
+      year == 2012 ~ "Event year US",
       year == 2017 ~ "Event year EU",
       TRUE ~ "Other years"
     )
@@ -403,5 +403,82 @@ for (s in sites) {
 }
 ```
 
-A number of European sites show exceptional z-scores in 2017 which corresponds with a known late spring frost event in that year. Only one US site shows an exceptional z-score in 2010. So the known late spring frost event in North-eastern US is not visible in this data. 
+Calculation of anomaly in doy of last spring frost
+```{R}
+df_anomalies <- df_yearly_summary %>%
+  group_by(site_id) %>%
+  mutate(
+    last_frost_doy_mean = mean(last_frost_doy, na.rm = TRUE),
+    last_frost_doy_sd   = sd(last_frost_doy, na.rm = TRUE),
+    last_frost_doy_z    = (last_frost_doy - last_frost_doy_mean) / last_frost_doy_sd,
+    last_frost_doy_anomaly = last_frost_doy - last_frost_doy_mean
+  ) %>%
+  ungroup()
+```
+
+Plot anomlies of doy of last spring frost
+```{R}
+dir.create("../figures/doy_last_frost_anomalies_fdk", recursive = TRUE, showWarnings = FALSE)
+
+df_anomalies <- df_anomalies |>
+  mutate(
+    highlight = case_when(
+      year == 2012 ~ "Event year US",
+      year == 2017 ~ "Event year EU",
+      TRUE ~ "Other years"
+    )
+  )
+
+sites <- unique(df_anomalies$site_id)
+
+for (s in sites) {
+  
+  df_plot <- df_anomalies |>
+    filter(
+      site_id == s,
+      !is.na(year),
+      !is.na(last_frost_doy_anomaly)
+    )
+  
+  if (nrow(df_plot) == 0) next
+  
+  p <- ggplot(df_plot, aes(x = year, y = last_frost_doy_anomaly)) +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    geom_point(aes(color = highlight), size = 2) +
+    scale_color_manual(
+      values = c(
+        "Other years" = "grey60",
+        "Event year US" = "#D55E00",
+        "Event year EU" = "blue"
+      )
+    ) +
+    labs(
+      x = "Year",
+      y = "Anomaly of last frost DOY (in days)",
+      color = "",
+      title = paste("Anomalies of last frost DOY -", s)
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      panel.grid.minor = element_blank(),
+      legend.position = "bottom"
+    )
+  
+  ggsave(
+    filename = paste0("../figures/doy_last_frost_anomalies_fdk/", s, "_last_frost_doy_z.png"),
+    plot = p,
+    width = 7,
+    height = 5,
+    dpi = 300
+  )
+}
+```
+
+A number of European sites, especially in central Europe show exceptional z-scores in 2017. 2017 is known for a late spring frost event in that year as described by Vitasse & Rebetez (2018). At 4 out of 9 central European sites the anomalies in 2017 are the largest anomalies ever recorded and at another 2 sites they are the second largest anomalies ever recorded. Interestingly the sites in central Europe at higher altitude die not show exceptional anomalies in 2017 with CH-Dav even having a negative anomaly in 2017. That 2017 only was an event year in central Europe can also be seen in the data, because the stations in Northern and eastern Europe did not show exceptional anomalies. At many sites the LSF was among the latest ever at central European sites with anomalies of up to +20-27 days compared to the mean. If the SOS in 2017 was around average, a later last spring frost event allowed for a longer time period to accumulate thermal forcing resulting in higher accumulated GDD at LSF.
+
+As described in Ault et al. (2013) and Wolf et al. (2016) the false spring in 2012 was unprecedented for many regions in the north-eastern US and south-eastern Canada. This can also be seen in the data of almost all sites in this region when looking at the anomaly of GDD at LSF. For most sites 2012 was the most or at least second or third most anomalous year in the records. Only US-MMS and US-MOz are exceptions having negative anomaly in 2012, but these sites are also located slightly more to the south. At US and Canadian sites the LSF was not exceptionally late compared to the long term mean. Anomalies varied between -5 and +10 days compared to the mean. This is an indication that the spring either had to start exceptionally earlier or the temperatures were unusually high (which they were according to Ault et al). 
+
+
+## Literature
+to be added
 
