@@ -12,6 +12,11 @@ library(stringr)
 library(broom)
 library(tibble)
 library(arrow)
+library(lme4)
+library(lmerTest)
+library(performance)
+library(ggeffects)
+library(rlang)
 ```
 
 
@@ -477,6 +482,53 @@ for (s in sites) {
 A number of European sites, especially in central Europe show exceptional z-scores in 2017. 2017 is known for a late spring frost event in that year as described by Vitasse & Rebetez (2018). At 4 out of 9 central European sites the anomalies in 2017 are the largest anomalies ever recorded and at another 2 sites they are the second largest anomalies ever recorded. Interestingly the sites in central Europe at higher altitude die not show exceptional anomalies in 2017 with CH-Dav even having a negative anomaly in 2017. That 2017 only was an event year in central Europe can also be seen in the data, because the stations in Northern and eastern Europe did not show exceptional anomalies. At many sites the LSF was among the latest ever at central European sites with anomalies of up to +20-27 days compared to the mean. If the SOS in 2017 was around average, a later last spring frost event allowed for a longer time period to accumulate thermal forcing resulting in higher accumulated GDD at LSF.
 
 As described in Ault et al. (2013) and Wolf et al. (2016) the false spring in 2012 was unprecedented for many regions in the north-eastern US and south-eastern Canada. This can also be seen in the data of almost all sites in this region when looking at the anomaly of GDD at LSF. For most sites 2012 was the most or at least second or third most anomalous year in the records. Only US-MMS and US-MOz are exceptions having negative anomaly in 2012, but these sites are also located slightly more to the south. At US and Canadian sites the LSF was not exceptionally late compared to the long term mean. Anomalies varied between -5 and +10 days compared to the mean. This is an indication that the spring either had to start exceptionally earlier or the temperatures were unusually high (which they were according to Ault et al). 
+
+## Analysis of Trend in GDD at LSF using Mixed Effects Models
+Combine yearly summary with climate zone
+```{R}
+site_info <- read_csv("../data_raw/fdk_site_info.csv")
+site_info <- site_info |>
+  rename("site_id" = sitename)
+
+df_yearly_summary <- df_yearly_summary |>
+  left_join(site_info, by = "site_id")
+```
+
+Trends in GDD at LSF across sites
+```{R}
+df_mixed <- df_yearly_summary |>
+  filter(
+    !is.na(GDD_at_LSF),
+    !is.na(year),
+    !is.na(site_id),
+    !is.na(igbp_land_use.x),
+    !is.na(koeppen_code)
+  ) |>
+  mutate(
+    year_c = year - mean(year, na.rm = TRUE)
+  )
+
+m1_simple <- lmer(
+  GDD_at_LSF ~ year_c + (1 | site_id),
+  data = df_mixed
+)
+
+summary(m1_simple)
+```
+
+A linear mixed-effects model with site identity as random intercept showed no significant overall temporal trend in GDD accumulated until the last spring frost. The fixed effect of year was positive but small and not statistically significant (β = 0.216 GDD yr⁻¹, p = 0.466).
+
+Correlation between IGBP land use and GDD at LSF
+```{R}
+m_igbp <- lmer(
+  GDD_at_LSF ~ year_c * igbp_land_use.x + (1 | site_id),
+  data = df_mixed
+)
+
+summary(m_igbp)
+anova(m1_simple, m_igbp)
+```
+*Interpretation:*
 
 
 ## Literature
