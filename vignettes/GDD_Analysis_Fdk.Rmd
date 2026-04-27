@@ -133,7 +133,7 @@ plot_colors <- c(
 )
 
 # create plot for each site
-dir.create("../figures/5yearGDD", recursive = TRUE, showWarnings = FALSE)
+dir.create("../figures/gdd_5year_fdk", recursive = TRUE, showWarnings = FALSE)
 
 sites <- unique(df_gdd_5yr_mean$site_id)
 
@@ -166,7 +166,7 @@ for (s in sites) {
     )
   
   ggsave(
-    filename = paste0("../figures/5yearGDD/", s, "_5year_mean_GDD.png"),
+    filename = paste0("../figures/gdd_5year_fdk/", s, "_5year_mean_GDD.png"),
     plot = p,
     width = 7,
     height = 5,
