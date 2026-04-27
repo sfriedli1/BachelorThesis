@@ -1,0 +1,375 @@
+---
+title: "GPP_Analysis_Fdk"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+```{R}
+library(readr)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(purrr)
+library(stringr)
+library(tidyr)
+library(Rssa)
+library(ggpmisc)
+library(tibble)
+library(arrow)
+```
+
+## Objective
+The object of the analysis is to determine the Start of Season (SOS) with seasonal GPP cycle oriented at the analysis of Gu et al. (2022). GPP measurements will be smoothed first, then the SOS will be categorized as 15% of daily maximum GPP. In a next step the late spring frost events will be identified and then finally the GPP in the following 30-180 days will be analyzed and compared with the long term average in the respective time span. To remain consistent with Gu et al. (2022), daily GPP time series were smoothed using Singular Spectrum Analysis (SSA) prior to extracting the start of season (SOS) from the smoothed seasonal trajectory.
+
+Read in parquet file
+```{R}
+df_all_stations <- read_parquet("../data/data_fdk_parquet/fdk_forest_15years.parquet")
+
+# calculate doy
+df_all_stations <- df_all_stations |>
+  mutate(date = ymd(TIMESTAMP))|>
+  filter(!(month(date) == 2 & day(date) == 29))|>
+  mutate(
+    year = year(date),
+    doy = yday(date),
+    doy = if_else(leap_year(date) & month(date) >= 3, doy - 1L, doy)
+  )
+```
+
+## Check data quality of GPP recordings
+```{R}
+# quality control of yearly data
+df_qc_year <- df_all_stations |>
+  group_by(site_id, year) |>
+  summarise(
+    n_days_total = n(),
+    n_gpp_dt = sum(!is.na(GPP_DT_VUT_REF)),
+    n_gpp_nt = sum(!is.na(GPP_NT_VUT_REF)),
+    frac_gpp_dt = n_gpp_dt / n_days_total,
+    frac_gpp_nt = n_gpp_nt / n_days_total,
+    .groups = "drop"
+  )
+
+# mark all years, where <300 days GPP measurements
+df_qc_year <- df_qc_year |>
+  mutate(
+    pass_annual_dt = n_gpp_dt >= 300,
+    pass_annual_nt = n_gpp_nt >= 300
+  )
+
+## quality control of spring data (DOY 1-150)
+df_qc_spring <- df_all_stations |>
+  filter(doy >= 1, doy <=150) |>
+  group_by(site_id, year) |> 
+  summarise(
+    n_spring_days = n(),
+    n_spring_gpp_dt = sum(!is.na(GPP_DT_VUT_REF)),
+    n_spring_gpp_nt = sum(!is.na(GPP_NT_VUT_REF)),
+    frac_spring_dt = n_spring_gpp_dt / n_spring_days,
+    frac_spring_nt = n_spring_gpp_nt / n_spring_days,
+    .groups = "drop"
+  )
+
+# mark all years, where <95% data coverage in spring
+df_qc_spring <- df_qc_spring |> 
+  mutate(
+    pass_spring_dt = frac_spring_dt >= 0.95,
+    pass_spring_nt = frac_spring_nt >= 0.95
+  )
+
+# join both data frames into one
+df_qc <- df_qc_year |>
+  left_join(df_qc_spring, by = c("site_id", "year")) |>
+  mutate(
+    pass_dt = pass_annual_dt & pass_spring_dt,
+    pass_nt = pass_annual_nt & pass_spring_nt
+  )
+```
+
+### Plot quality control variables
+```{R}
+# Visualize yearly data quality
+ggplot(df_qc_spring, aes(x = year, y = frac_spring_dt)) +
+  geom_point() +
+  geom_hline(yintercept = 0.95, linetype = "dashed", color = "red") +
+  facet_wrap(~site_id, ncol = 4) +
+  labs(
+    x = "Year",
+    y = "Fraction valid yearly GPP days",
+    title = "Yearly data coverage for GPP_DT_VUT_REF"
+  ) +
+  theme_minimal()
+```
+
+Some stations show insufficient quality in GPP_DT measurements for a number of years. These years have to be excluded from the further analysis.
+```{R}
+df_all_stations_clean <- df_all_stations %>%
+  anti_join(
+    df_qc_spring %>%
+      filter(pass_spring_dt == FALSE) %>%
+      select(site_id, year),
+    by = c("site_id", "year")
+  )
+```
+
+Smooth daytime GPP measurements:
+```{R}
+source("../R/ssa_functions.R")
+df_ssa <- run_ssa_all(
+  data = df_all_stations_clean,
+  L = 90,
+  comps = 1:2,
+)
+```
+
+## Identification of the SOS
+As proposed in Gu et al. (2022) and in Chen et al. (2023) for the identification of the Start of Season this analysis will use the approach of identifying the SOS based on a threshold of multi year maximum daily smoothed GPP. Two threshold levels will be tested: 15% of multi year maximum daily smoothed GPP (Gu et al., 2022) and 10% of multi year maximum daily smoothed GPP (Chen et al., 2023). The 15% threshold will also be tested, because it was used in the context of late spring frost, whereas the 10% threshold was used in the context of drought impacts. 
+
+Note: For each site, the first and last year of the time series were excluded from SOS analyses based on SSA-smoothed daily GPP in order to reduce edge effects/artefacts associated with smoothing at the boundaries of the series.
+```{R}
+# remove first and last year
+df_ssa_core <- df_ssa |>
+  group_by(site_id) |>
+  filter(
+    year > min(year),
+    year < max(year)
+  ) |>
+  ungroup()
+
+# load functions
+source("../R/GPP_SOS.R")
+
+# calculate 15 % threshold for each site
+thresholds_site_t15 <- calc_site_thresholds(
+  data = df_ssa_core,
+  gpp_col = "GPP_DT_smoothed",
+  frac = 0.15
+)
+
+# calculate 10% threshold for each site
+thresholds_site_t10 <- calc_site_thresholds(
+  data = df_ssa_core,
+  gpp_col = "GPP_DT_smoothed",
+  frac = 0.10
+)
+
+# SOS for each site with 15% threshold
+df_sos_t15 <- identify_sos(
+  data = df_ssa_core,
+  thresholds = thresholds_site_t15,
+  gpp_col = "GPP_DT_smoothed",
+  doy_col = "doy"
+)
+
+# SOS for each site with 10% threshold
+df_sos_t10 <- identify_sos(
+  data = df_ssa_core,
+  thresholds = thresholds_site_t10,
+  gpp_col = "GPP_DT_smoothed",
+  doy_col = "doy"
+)
+```
+
+Boxplot SOS for all sites
+```{R}
+# Boxplots 10% threshold
+df_sos_t10_plot <- df_sos_t10 %>%
+  arrange(site_id) %>%
+  mutate(site_group = ceiling(as.numeric(factor(site_id)) / 4))
+
+dir.create("../figures/boxplot_GPP", recursive = TRUE, showWarnings = FALSE)
+
+for (s in unique(df_sos_t10$site_id)) {
+  
+  p <- df_sos_t10 %>%
+    filter(site_id == s) %>%
+    ggplot(aes(x = site_id, y = SOS)) +
+    geom_boxplot() +
+    ggtitle(paste("SOS distribution for", s, "- 10% threshold")) +
+    theme_bw()
+  
+  ggsave(
+    filename = paste0("../figures/boxplot_GPP/boxplot_SOS_t10_", s, ".png"),
+    plot = p,
+    width = 5,
+    height = 4,
+    dpi = 300
+  )
+}
+
+# Boxplots 15% threshold
+df_sos_t15_plot <- df_sos_t15 %>%
+  arrange(site_id) %>%
+  mutate(site_group = ceiling(as.numeric(factor(site_id)) / 4))
+
+for (s in unique(df_sos_t15$site_id)) {
+  
+  p <- df_sos_t15 %>%
+    filter(site_id == s) %>%
+    ggplot(aes(x = site_id, y = SOS)) +
+    geom_boxplot() +
+    ggtitle(paste("SOS distribution for", s, "- 15% threshold")) +
+    theme_bw()
+  
+  ggsave(
+    filename = paste0("../figures/boxplot_GPP/boxplot_SOS_t15_", s, ".png"),
+    plot = p,
+    width = 5,
+    height = 4,
+    dpi = 300
+  )
+}
+```
+
+```{R}
+# Overview Boxplots 10% threshold
+site_groups <- unique(df_sos_t10$site_id) %>%
+  sort() %>%
+  split(ceiling(seq_along(.) / 4))
+
+for (i in seq_along(site_groups)) {
+  
+  sites_i <- site_groups[[i]]
+  
+  p <- df_sos_t10 %>%
+    filter(site_id %in% sites_i) %>%
+    ggplot(aes(x = site_id, y = SOS)) +
+    geom_boxplot() +
+    coord_cartesian(ylim = c(0, 150)) +
+    ggtitle(paste("Distribution of SOS - 10% threshold | Group", i)) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  print(p)
+}
+
+```
+
+Across all sites, the mean doy of the SOS and also the variation per site is considerable. More US-Sites have years with outliers compared to European sites. An in almost all cases the outliers are unusually early doy for SOS. 
+
+Plot the trend of SOS for all sites with 10% threshold:
+```{R}
+site_groups <- unique(df_sos_t10$site_id) %>%
+  sort() %>%
+  split(ceiling(seq_along(.) / 6))
+
+for (i in seq_along(site_groups)) {
+  
+  sites_i <- site_groups[[i]]
+  
+  p <- df_sos_t10 %>%
+    filter(site_id %in% sites_i) %>%
+    ggplot(aes(x = year, y = SOS)) +
+    geom_point(alpha = 0.4, size = 2) +
+    geom_smooth(method = "lm", se = TRUE, color = "#0072B2", linewidth = 0.9) +
+    stat_poly_eq(
+      formula = y ~ x,
+      aes(label = paste(..rr.label.., ..p.value.label.., sep = "*\", \"*")),
+      parse = TRUE,
+      label.x = "left",
+      label.y = "top",
+      size = 3.5
+    ) +
+    facet_wrap(~ site_id, ncol = 3) +
+    labs(
+      x = "Year",
+      y = "Start of season (DOY)",
+      title = paste("Interannual variation in SOS (10% threshold) - Group", i)
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(panel.grid.minor = element_blank())
+  
+  print(p)
+}
+
+```
+
+The trend of in doy of SOS shows sites with advancing SOS but also with delaying SOS. For most sites the trends are not statistically significant, except for CH-Lae (advancing), CZ-BK1 (delaying), US-Ha1 (advancing) and US-MOz (delaying). At first sight there do not seem to be patterns for US vs. Europe. 
+
+## Identification of last spring forst after SOS
+Calculate LSF after SOS with 10% and 15% threshold
+```{R}
+source("../R/GPP_LSF.R")
+
+#calculate LSF after SOS with 10% threshold
+lsf_results_10 <- calculate_lsf_after_sos(
+  df = df_ssa_core,
+  df_sos = df_sos_t10,
+  frost_threshold = -2,
+  temp_col = "TMIN_F_MDS"
+)
+df_lsf_daily_t10 <- lsf_results_10$daily
+df_lsf_summary_t10 <- lsf_results_10$yearly_summary
+
+# calculate LSF after SOS with 15% threshold
+lsf_results_15 <- calculate_lsf_after_sos(
+  df = df_ssa_core, # use data frame where the first and last year have been removed
+  df_sos = df_sos_t15,
+  frost_threshold = -2,
+  temp_col = "TMIN_F_MDS"
+)
+
+df_lsf_daily_t15 <- lsf_results_15$daily
+df_lsf_summary_t15 <- lsf_results_15$yearly_summary
+```
+
+Heatmap showing occurrence of frost after SOS
+```{R}
+# combine threshold data frames
+df_lsf_thr_combined <- bind_rows(
+  df_lsf_summary_t10 |> mutate(threshold_label = "10%"),
+  df_lsf_summary_t15 |> mutate(threshold_label = "15%"))
+
+# df for heat map and plot
+df_lsf_heat <- df_lsf_thr_combined |>
+  mutate(
+    has_frost_after_sos = !is.na(n_frost_days_after_SOS_until_LSF),
+    event = ifelse(has_frost_after_sos, "Yes", "No"),
+    threshold_label = factor(threshold_label, levels = c("10%", "15%"))
+  )
+
+sites <- sort(unique(df_lsf_heat$site_id))
+
+site_groups <- split(
+  sites,
+  ceiling(seq_along(sites) / 6)
+)
+
+for (i in seq_along(site_groups)) {
+  
+  sites_i <- site_groups[[i]]
+  
+  p <- df_lsf_heat |>
+    filter(site_id %in% sites_i) |>
+    ggplot(aes(x = year, y = site_id, fill = event)) +
+    geom_tile(color = "white", linewidth = 0.3) +
+    facet_grid(threshold_label ~ .) +
+    scale_fill_manual(values = c("Yes" = "#D55E00", "No" = "#F0F0F0")) +
+    scale_x_continuous(
+      breaks = sort(unique(df_lsf_heat$year))
+    ) +
+    labs(
+      title = paste("Occurrence of frost after SOS across sites and years - Group", i),
+      subtitle = "10% and 15% stand for the two different SOS-thresholds",
+      x = "Year",
+      y = "Site",
+      fill = "Frost after SOS"
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      panel.grid = element_blank(),
+      axis.text.x = element_text(angle = 90, hjust = 1)
+    )
+  
+  print(p)
+}
+```
+
+For sites where not all years show frost after the SOS, the chosen thereshold makes a significant difference how many years experience frost after SOS. 10% seems more reasonable, was also used in Gu et al. (2022).
+
+

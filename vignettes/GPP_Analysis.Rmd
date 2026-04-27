@@ -210,7 +210,7 @@ df_ssa <- run_ssa_all(
 ```
 
 ## Identification of the SOS
-As proposed in Gu et al. (2022) and in Chen et al. (2023) for the identification of the Start of Season this analysis will use the approach of identifying the SOS based on a threshold of multi year maximum daily smoothed GPP. Two threshold levels will be tested: 15% of multi year maximum daily smoothed GPP (Gu et al., 2022) and 10% of multi year maximum daily smoothed GPP (Chen et al., 2023). The 10% threshold will also be tested, because it was used in the context of late spring frost, whereas the 10% threshold was used in the context of drought impacts. 
+As proposed in Gu et al. (2022) and in Chen et al. (2023) for the identification of the Start of Season this analysis will use the approach of identifying the SOS based on a threshold of multi year maximum daily smoothed GPP. Two threshold levels will be tested: 15% of multi year maximum daily smoothed GPP (Gu et al., 2022) and 10% of multi year maximum daily smoothed GPP (Chen et al., 2023). The 15% threshold will also be tested, because it was used in the context of late spring frost, whereas the 10% threshold was used in the context of drought impacts. 
 
 Formula for SOS threshold:
 $$
@@ -282,7 +282,7 @@ For both thresholds there are significant differences between sites regarding th
 
 The differences in SOS between sites match with the annual plots of smoothed daily GPP. In the plots one can clearly see that the rise starts a lot earlier in BE-Vie compared to US-Ha1, where the curve often stays quite flat at the start of the year. So increase in daily GPP picks up later which is consistent with reaching a given GPP threshold later in the year.
 
-Plot trend of SOS for each site
+Plot trend of SOS for each site with 10% threshold
 ```{R}
 ggplot(df_sos_t10, aes(x = year, y = SOS)) +
   geom_point(alpha = 0.4, size = 2) +

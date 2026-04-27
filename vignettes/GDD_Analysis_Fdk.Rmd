@@ -19,7 +19,6 @@ library(ggeffects)
 library(rlang)
 ```
 
-
 ## Objective
 Extend the GDD analysis to all stations from Evergreen Needleleaf Forest (ENF), Decidious Boreal Forest (DBF), Decidious Needleleaf Forest (DNF) and Mixed Forest (MF) sites in the Fluxdatakit data set that have at least 15 years of recordings. Increasing the number of stations should allow to see regional patterns in GDD at last frost.
 
@@ -530,6 +529,7 @@ anova(m1_simple, m_igbp)
 ```
 *Interpretation:*
 
+Using a mixed effects model to analyze the correlation between the land use class and GDD at LSF showed no clear trends in GDD at LSF grouped by the land use class. The correlations are mostly weak and not statistically significant. 
 
 ## Literature
 to be added
