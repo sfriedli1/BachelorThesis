@@ -12,16 +12,28 @@ library(stringr)
 library(broom)
 library(tibble)
 library(arrow)
+library(lme4)
+library(lmerTest)
+library(performance)
+library(ggeffects)
+library(rlang)
 ```
 
 
 ## Objective
-Extend the GDD analysis to all stations in the Fluxdatakit data set that have at least 15 years of recordings. Increasing the number of stations should allow to see regional patterns in GDD at last frost.
+Extend the GDD analysis to all stations from Evergreen Needleleaf Forest (ENF), Decidious Boreal Forest (DBF), Decidious Needleleaf Forest (DNF) and Mixed Forest (MF) sites in the Fluxdatakit data set that have at least 15 years of recordings. Increasing the number of stations should allow to see regional patterns in GDD at last frost.
 
 Read in parquet file
 ```{R}
 df_all_stations <- read_parquet("../data/data_fdk_parquet/fdk_forest_15years.parquet")
 ```
+
+Igbp-codes per site
+```{R}
+df_sites_igbp <- df_all_stations |> 
+  distinct(site_id, igbp_land_use)
+```
+
 
 ## Analyze yearly trajectory of GDD
 
@@ -175,6 +187,8 @@ for (s in sites) {
 }
 ```
 
+Compairing 5 year means across stations, it becomes evident, that not all sites show the same trend in the development of 5 year means. For some sites GDD the 5 year means are clearly elevated for the last and second last 5 year period when looking at the total trajectory over the first 150 days but also when focusing on the time window around DOY 100, where the last frost typically occurs, especially at central European sites. The sites that show elevated 5 year means are often located at evergreen needle leaf forests. The most exceptional increase in 5 year mean GDD was observed at FI-Hyy where the 5 year mean from 2016-2020 showed significantly earlier rise in GDD and also unprecedented GDD accumulation in the first 150 days of the year. For other analysed sites the 5 year mean GDD do not show a clear trend of increase especially at US sites. Some of the US sites even show pattern of decreasing 5 year mean GDD around DOY 100 for example US-Bar. 
+
 Boxplot GDD per site:
 ```{R}
 site_groups <- tibble(
@@ -183,15 +197,25 @@ site_groups <- tibble(
 )
 
 df_plot <- df_yearly_summary |>
+  filter(!is.na(GDD_at_LSF), !is.nan(GDD_at_LSF), !is.infinite(GDD_at_LSF)) |>
   left_join(site_groups, by = "site_id")
-df_plot <- df_plot |>
-  filter(is.finite(GDD_at_LSF)) |>
-  filter(!site_id %in% c("AU-Tum","US-ARM","US-Wkg")) # ausgeschlossen, weil haben (sehr) aussergewöhnlich hohe GDD Werte
 
+# Plot with free scales
+ggplot(df_plot, aes(x = site_id, y = GDD_at_LSF)) +
+  geom_boxplot(outlier.shape = NA) +
+  facet_wrap(~group, scales = "free") +
+  labs(
+    x = "Site",
+    y = "GDD at LSF",
+    title = "Distribution of GDD at LSF by site"
+  ) +
+  theme_minimal(base_size = 12)
+
+# Plot with fixed y-scale
 ggplot(df_plot, aes(x = site_id, y = GDD_at_LSF)) +
   geom_boxplot(outlier.shape = NA) +
   facet_wrap(~group, scales = "free_x") +
-  coord_cartesian(ylim = c(0, 300)) +
+  scale_y_continuous(limits = c(0, 300)) +
   labs(
     x = "Site",
     y = "GDD at LSF",
@@ -201,6 +225,33 @@ ggplot(df_plot, aes(x = site_id, y = GDD_at_LSF)) +
 ```
 
 Note: IL-Yat only has one black line, because only once frost. 
+
+Calulate IQR, min, max and range of GDD at LSF
+```{R}
+df_variability <- df_yearly_summary |>
+  group_by(site_id) |>
+  summarise(
+    n = sum(!is.na(GDD_at_LSF)),
+    median_GDD = median(GDD_at_LSF, na.rm = TRUE),
+    IQR_GDD = IQR(GDD_at_LSF, na.rm = TRUE),
+    min_GDD = ifelse(n > 0, min(GDD_at_LSF, na.rm = TRUE), NA),
+    max_GDD = ifelse(n > 0, max(GDD_at_LSF, na.rm = TRUE), NA),
+    range_GDD = max_GDD - min_GDD
+  ) |>
+  mutate(
+    across(
+      c(median_GDD, IQR_GDD, min_GDD, max_GDD, range_GDD),
+      \(x) round(x, 1)
+    )
+  ) |>
+  arrange(desc(IQR_GDD))
+``` 
+
+The box plots in combination with the statistical measures show significant differences in accumulated GDD at LSF over the site years. The largest IQR occurred at CA-TP1 with 110.4 GDD difference where as DK-Sor showed the smallest IQR with 14.3 GDD difference. Larger IQR also meant larger range (max-min) and higher median GDD at LSF. A number of sites had a min GDD at LSF of 0. More generally high IQR was observed in north-central US. Small IQR was observed at north-eastern US and northern europe. 
+
+Small IQR: US-Bar north eastcoast, US-GLE north central(in the mountains, ENF), US-Ha1 north eastcoast (DBF), US-Ho2 north eastcoast (ENF), DK-Sor northern europe (DBF, on island near sea), FI-Hyy northern europe (ENF, not to far from fjord) --> generally in the north and close to sea so oceanic climate
+Large IQR: US-Moz north central (DBF), US-MMS north central (DBF), US-PFa north central (MF), CA-TP1 north central US (ENF) --> continental climate
+
 
 Plot GDD at last frost for each site over the analysis period 1991-2020:
 ```{R}
@@ -277,6 +328,14 @@ Netherlands no trend.
 Sweden negative trend, almost statistically significant. 
 USA has sites with positive and negative trends. One site with statistically significant positive trend and one site with statistically significant negative trend. More sites show positive trends, then negative trends. 
 
+Across all sites only two sites show statistically significant trends (US-Ha1 increasing; RU-Fyo decreasing). 
+For the european sites that show positive trends in GDD at LSF they are often (4/6) ENF and CH-Lae is MF, which means it can potentially also contain a lot of evergreen needle leaf trees. 
+At the US sites there is no pattern between igbp land use and positive trends in GDD. 
+There does not seem to be a link between the geographical location and the climate zone and positive in GDD at LSF.
+For the sites that show negative trend in GDD at LSF they are often (5/6) ENF and 4/6 are in Dfb koppen climate zone. 
+
+In general ENF sites seem to show the most changes in trend of GDD at LSF, but both increasing or decreasing. ---> aufpassen, weil mit Abstand die meisten sites sind ENF
+
 Calculation of z-Score
 ```{R}
 df_anomalies <- df_yearly_summary %>%
@@ -297,7 +356,7 @@ dir.create("../figures/gdd_anomalies_fdk", recursive = TRUE, showWarnings = FALS
 df_anomalies <- df_anomalies |>
   mutate(
     highlight = case_when(
-      year == 2010 ~ "Event year US",
+      year == 2012 ~ "Event year US",
       year == 2017 ~ "Event year EU",
       TRUE ~ "Other years"
     )
@@ -349,5 +408,129 @@ for (s in sites) {
 }
 ```
 
-A number of European sites show exceptional z-scores in 2017 which corresponds with a known late spring frost event in that year. Only one US site shows an exceptional z-score in 2010. So the known late spring frost event in North-eastern US is not visible in this data. 
+Calculation of anomaly in doy of last spring frost
+```{R}
+df_anomalies <- df_yearly_summary %>%
+  group_by(site_id) %>%
+  mutate(
+    last_frost_doy_mean = mean(last_frost_doy, na.rm = TRUE),
+    last_frost_doy_sd   = sd(last_frost_doy, na.rm = TRUE),
+    last_frost_doy_z    = (last_frost_doy - last_frost_doy_mean) / last_frost_doy_sd,
+    last_frost_doy_anomaly = last_frost_doy - last_frost_doy_mean
+  ) %>%
+  ungroup()
+```
+
+Plot anomlies of doy of last spring frost
+```{R}
+dir.create("../figures/doy_last_frost_anomalies_fdk", recursive = TRUE, showWarnings = FALSE)
+
+df_anomalies <- df_anomalies |>
+  mutate(
+    highlight = case_when(
+      year == 2012 ~ "Event year US",
+      year == 2017 ~ "Event year EU",
+      TRUE ~ "Other years"
+    )
+  )
+
+sites <- unique(df_anomalies$site_id)
+
+for (s in sites) {
+  
+  df_plot <- df_anomalies |>
+    filter(
+      site_id == s,
+      !is.na(year),
+      !is.na(last_frost_doy_anomaly)
+    )
+  
+  if (nrow(df_plot) == 0) next
+  
+  p <- ggplot(df_plot, aes(x = year, y = last_frost_doy_anomaly)) +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    geom_point(aes(color = highlight), size = 2) +
+    scale_color_manual(
+      values = c(
+        "Other years" = "grey60",
+        "Event year US" = "#D55E00",
+        "Event year EU" = "blue"
+      )
+    ) +
+    labs(
+      x = "Year",
+      y = "Anomaly of last frost DOY (in days)",
+      color = "",
+      title = paste("Anomalies of last frost DOY -", s)
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      panel.grid.minor = element_blank(),
+      legend.position = "bottom"
+    )
+  
+  ggsave(
+    filename = paste0("../figures/doy_last_frost_anomalies_fdk/", s, "_last_frost_doy_z.png"),
+    plot = p,
+    width = 7,
+    height = 5,
+    dpi = 300
+  )
+}
+```
+
+A number of European sites, especially in central Europe show exceptional z-scores in 2017. 2017 is known for a late spring frost event in that year as described by Vitasse & Rebetez (2018). At 4 out of 9 central European sites the anomalies in 2017 are the largest anomalies ever recorded and at another 2 sites they are the second largest anomalies ever recorded. Interestingly the sites in central Europe at higher altitude die not show exceptional anomalies in 2017 with CH-Dav even having a negative anomaly in 2017. That 2017 only was an event year in central Europe can also be seen in the data, because the stations in Northern and eastern Europe did not show exceptional anomalies. At many sites the LSF was among the latest ever at central European sites with anomalies of up to +20-27 days compared to the mean. If the SOS in 2017 was around average, a later last spring frost event allowed for a longer time period to accumulate thermal forcing resulting in higher accumulated GDD at LSF.
+
+As described in Ault et al. (2013) and Wolf et al. (2016) the false spring in 2012 was unprecedented for many regions in the north-eastern US and south-eastern Canada. This can also be seen in the data of almost all sites in this region when looking at the anomaly of GDD at LSF. For most sites 2012 was the most or at least second or third most anomalous year in the records. Only US-MMS and US-MOz are exceptions having negative anomaly in 2012, but these sites are also located slightly more to the south. At US and Canadian sites the LSF was not exceptionally late compared to the long term mean. Anomalies varied between -5 and +10 days compared to the mean. This is an indication that the spring either had to start exceptionally earlier or the temperatures were unusually high (which they were according to Ault et al). 
+
+## Analysis of Trend in GDD at LSF using Mixed Effects Models
+Combine yearly summary with climate zone
+```{R}
+site_info <- read_csv("../data_raw/fdk_site_info.csv")
+site_info <- site_info |>
+  rename("site_id" = sitename)
+
+df_yearly_summary <- df_yearly_summary |>
+  left_join(site_info, by = "site_id")
+```
+
+Trends in GDD at LSF across sites
+```{R}
+df_mixed <- df_yearly_summary |>
+  filter(
+    !is.na(GDD_at_LSF),
+    !is.na(year),
+    !is.na(site_id),
+    !is.na(igbp_land_use.x),
+    !is.na(koeppen_code)
+  ) |>
+  mutate(
+    year_c = year - mean(year, na.rm = TRUE)
+  )
+
+m1_simple <- lmer(
+  GDD_at_LSF ~ year_c + (1 | site_id),
+  data = df_mixed
+)
+
+summary(m1_simple)
+```
+
+A linear mixed-effects model with site identity as random intercept showed no significant overall temporal trend in GDD accumulated until the last spring frost. The fixed effect of year was positive but small and not statistically significant (β = 0.216 GDD yr⁻¹, p = 0.466).
+
+Correlation between IGBP land use and GDD at LSF
+```{R}
+m_igbp <- lmer(
+  GDD_at_LSF ~ year_c * igbp_land_use.x + (1 | site_id),
+  data = df_mixed
+)
+
+summary(m_igbp)
+anova(m1_simple, m_igbp)
+```
+*Interpretation:*
+
+
+## Literature
+to be added
 
