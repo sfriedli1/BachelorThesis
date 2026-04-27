@@ -37,10 +37,10 @@ for (f in files) {
 
   message("Processing: ", basename(f))
 
-  # 1. CSV schnell einlesen
+  # 1. Read in CSV files
   dt <- fread(f)
 
-  # 2. Zusatzspalten
+  # 2. Register source file
   dt[, source_file := basename(f)]
 
   dt[, site_id := str_extract(
@@ -48,22 +48,22 @@ for (f in files) {
     "(?<=FLX_)[A-Z]{2}-[A-Za-z0-9]+(?=_FLUXDATAKIT)"
   )]
 
-  # 3. Zielpfad pro Datei (Parquet file)
+  # 3. Define path for Parquet file
   out_file <- file.path(
     output_dir,
     paste0(tools::file_path_sans_ext(basename(f)), ".parquet")
   )
 
-  # 4. Schreiben als Parquet
+  # 4. Write out as parquet
   write_parquet(dt, out_file)
 
-  # 5. Speicher freigeben
+  # 5. Free up memory
   rm(dt)
   gc()
 }
 ``` 
 
-Filter relevant parquet files
+## Filter relevant parquet files
 ```{R}
 # read in daily data
 files <- list.files(
@@ -79,10 +79,16 @@ ds <- ds |>
   select(
     TIMESTAMP,
     site_id,
+
+    # temperature
     TA_F_MDS,
     TA_F_MDS_QC,
     TMIN_F_MDS,
     TMAX_F_MDS,
+
+    # carbon fluxes / partitioned GPP
+    NEE_VUT_REF,
+    NEE_VUT_REF_QC,
     GPP_NT_VUT_REF,
     GPP_DT_VUT_REF
   )
@@ -101,7 +107,7 @@ site_years <- ds |>
   )
 
 valid_sites <- site_years |>
-  filter(years >= 10) |>
+  filter(years >= 15) |>
   pull(site_id)
 
 # read site metadata
@@ -109,7 +115,7 @@ site_info <- read_csv("../data_raw/fdk_site_info.csv")
 
 # keep only relevant land use classes (forest sites)
 forest_info <- site_info |>
-  filter(igbp_land_use %in% c("DBF", "ENF", "DNF", "MF")) |> # include only decidious boreal forest, evergreen needleleaf forest, decidious needleleaf forest
+  filter(igbp_land_use %in% c("DBF", "ENF", "DNF", "MF")) |> # include only decidious broadleaf forest, evergreen needleleaf forest, decidious needleleaf forest
   select(sitename, igbp_land_use) |>
   distinct()
 

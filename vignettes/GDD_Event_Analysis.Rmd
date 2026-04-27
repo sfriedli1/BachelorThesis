@@ -1,0 +1,228 @@
+---
+title: "GDD_Event_Analysis"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+```{R}
+library(arrow)
+library(readr)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+```
+
+## Data preparation
+Read in data files
+```{R}
+df_all_stations <- read_parquet("../data/data_fdk_parquet/fdk_forest_15years.parquet")
+```
+
+Filter out sites in koeppen climate codes D and C with cold winters.
+```{R}
+df_site_info <- read_csv("../data/fdk_site_info.csv")
+df_climate_info <- df_site_info |>
+  rename("site_id" = sitename) |>
+  select(site_id, koeppen_code)
+df_sites <- df_all_stations |>
+  inner_join(df_climate_info) |>
+  filter(koeppen_code %in% c(
+      "Cfb", "Cfc",
+      "Dfa", "Dfb", "Dfc", "Dfd",
+      "Dwa", "Dwb", "Dwc", "Dwd"
+    ))
+```
+
+**Data quality assessment:**
+
+For the quality control of the temperature measurements the quality control variable `TA_F_MDS_QC` will be used. For good quality it has to be 0=measured or 1=good quality gap fill so only days where TA_F_MDS_QC <=1 will be considered for the analysis.
+```{R}
+# check temperature coverage
+# keep original data
+df_sites_raw <- df_sites
+
+# check temperature coverage before filtering
+temp_coverage <- df_sites_raw |>
+  mutate(
+    TIMESTAMP = as.Date(TIMESTAMP),
+    year = year(TIMESTAMP)
+  ) |>
+  group_by(site_id, year) |>
+  summarise(
+    n_days_total = n(),
+    n_days_temp_good = sum(!is.na(TA_F_MDS) & TA_F_MDS_QC <= 1),
+    temp_coverage = n_days_temp_good / n_days_total,
+    .groups = "drop"
+  )
+
+ggplot(temp_coverage, aes(x = year, y = temp_coverage)) +
+  geom_point(
+    aes(color = temp_coverage < 0.99),
+    alpha = 0.8,
+    size = 1.8
+  ) +
+  facet_wrap(~ site_id, ncol = 4) +
+  scale_y_continuous(
+    limits = c(0, 1),
+    labels = scales::percent
+  ) +
+  scale_color_manual(
+    values = c("FALSE" = "black", "TRUE" = "red"),
+    labels = c("≥ 99%", "< 99%"),
+    name = "Coverage"
+  ) +
+  labs(
+    x = "Year",
+    y = "Temperature data coverage",
+    title = "Annual temperature coverage per site"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank()
+  )
+
+# then filter data
+df_sites <- df_sites_raw |>
+  filter(TA_F_MDS_QC <= 1)
+```
+
+The quality check showed that all recordings of temperature are either measured or of good gap filled quality. 
+
+## Calculate GDD at spring frost events
+Events with a GDD threshold of 50:
+```{R}
+source("../R/GDD_Frost_Events.R")
+
+res_50 <- find_frost_gdd(df_sites, gdd_threshold = 50)
+
+df_with_events_50 <- res_50$df
+frost_events_50 <- res_50$events
+```
+
+Events with GDD threshold of 25 as sensitivity analysis:
+```{R}
+source("../R/GDD_Frost_Events.R")
+
+res_25 <- find_frost_gdd(df_sites, gdd_threshold = 25)
+
+df_with_events_25 <- res_25$df
+frost_events_25 <- res_25$events
+```
+
+Plot the GDD at all frost events above threshold
+```{R}
+ggplot(frost_events_50, aes(x = site_id, y = gdd_start)) +
+  geom_violin(fill = "grey80", color = "black") +
+  geom_boxplot(width = 0.1, outlier.shape = NA) +
+  coord_flip() +
+  labs(
+    x = "Site",
+    y = "GDD at frost event",
+    title = "Distribution of GDD at frost (density + summary)"
+  ) +
+  theme_minimal()
+```
+
+The distribution of GDD at frost events varies strongly across sites, indicating site-specific frost risk patterns. Some sites show frost events primarily at low GDD values, suggesting early-season frost limitation, while others exhibit frost events at higher GDD, indicating potential damage during advanced phenological stages. Several sites display long right tails, highlighting occasional late frost events occurring after substantial thermal accumulation.
+
+```{R}
+ggplot(frost_events_50, aes(x = gdd_start)) +
+  geom_histogram(binwidth = 10, fill = "grey70", color = "black") +
+  labs(
+    x = "GDD at frost",
+    y = "Count",
+    title = "Overall distribution of GDD at frost events"
+  ) +
+  theme_minimal()
+```
+
+```{R}
+ggplot(frost_events_50, aes(x = gdd_start)) +
+  geom_histogram(binwidth = 5, fill = "grey70", color = "black") +
+  facet_wrap(~site_id, ncol = 5)+
+  scale_y_continuous(breaks = seq(0, 8, by = 2))+
+  labs(
+    x = "GDD at frost",
+    y = "Count",
+    title = "Overall distribution of GDD at frost events"
+  ) +
+  theme_minimal()
+```
+
+At most sites, frost events occur at relatively low GDD values, indicating that frost risk is primarily associated with early phenological stages. However, the distribution of GDD at frost varies substantially across sites, reflecting differences in climate and phenological dynamics. Several sites exhibit frost events at high GDD values, suggesting an increased risk of frost damage during advanced vegetation development. Rare late frost events at very high GDD values were observed at multiple sites, highlighting the importance of extreme events.
+
+Relationship between GDD at frost and DOY
+```{R}
+frost_events_plot <- frost_events_50 |>
+  mutate(
+    start_date = as.Date(start_date),
+    frost_doy = yday(start_date)
+  )
+
+p_doy_gdd <- ggplot(frost_events_plot, aes(x = frost_doy, y = gdd_start)) +
+  geom_point(alpha = 0.6, size = 1.3) +
+  facet_wrap(~ site_id, ncol = 4) +
+  scale_x_continuous(
+    limits = c(1, 152),
+    breaks = seq(0, 150, by = 30)
+  ) +
+  scale_y_continuous(
+    breaks = seq(50, 250, by = 50)
+  ) +
+  labs(
+    x = "Day of year of frost event",
+    y = "GDD at frost event",
+    title = "Relationship between frost timing and GDD at frost",
+    subtitle = "Each point represents one frost event"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(face = "bold")
+  )
+
+p_doy_gdd
+
+# save plot
+dir.create("../figures/gdd_frost_events", recursive = TRUE, showWarnings = FALSE)
+
+ggsave(
+  filename = "../figures/gdd_frost_events/doy_vs_gdd_all_sites.png",
+  plot = p_doy_gdd,
+  width = 14,
+  height = 10,
+  dpi = 300
+)
+```
+
+In general frost events later in the year correlate with higher GDD at the frost event. However, for certain sites GDD is already considerably higher at frost events at earlier DOY compared to others, suggesting some sites accumulate radiative forcing earlier and faster than others. 
+
+Risk index combining accumulated GDD and frost severity
+```{R}
+frost_events_severity <- frost_events_50 |>
+  mutate(
+    frost_severity = abs(summed_negative_temp),
+    frost_risk = gdd_start * frost_severity
+  )
+
+# plot
+ggplot(frost_events_severity, aes(x = site_id, y = frost_risk)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.2, alpha = 0.5, size = 1.3) +
+  coord_flip() +
+  labs(
+    x = "Site",
+    y = "Frost risk index: GDD × severity",
+    title = "Combined frost risk across sites"
+  ) +
+  theme_minimal()
+```
+
+## Literature
+
+Quality Control variable: https://www.swissfluxnet.ethz.ch/index.php/data/variables/fluxnet-variable-codes/
