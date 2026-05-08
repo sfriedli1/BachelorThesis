@@ -223,6 +223,262 @@ ggplot(frost_events_severity, aes(x = site_id, y = frost_risk)) +
   theme_minimal()
 ```
 
+## Event analysis 
+### Analysis of the 2017 Event in Europe
+Plotting the course of GDD until DOY 151
+```{R}
+gdd_until_151 <- df_with_events_50 %>%
+  filter(DOY <= 151) %>%
+  filter(!grepl("^(CA|US)", site_id))%>%
+  arrange(site_id, year, DOY) %>%
+  group_by(site_id, year) %>%
+  ungroup()
+
+ggplot() +
+  geom_line(
+    data = gdd_until_151 %>% filter(year != 2017),
+    aes(x = DOY, y = GDD, group = year),
+    color = "grey70",
+    alpha = 0.45,
+    linewidth = 0.4
+  ) +
+  geom_line(
+    data = gdd_until_151 %>% filter(year == 2017),
+    aes(x = DOY, y = GDD, group = year),
+    color = "red",
+    linewidth = 0.75
+  ) +
+  facet_wrap(~ site_id, scales = "free_y") +
+  labs(
+    title = "Cumulative GDD until DOY 151 per Site",
+    subtitle = "The event year 2017 marked in red",
+    x = "Day of Year (DOY)",
+    y = "Cumulative GDD"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(face = "bold")
+  )
+```
+
+Plotting the course of GDD until last spring frost
+```{R}
+spring_end_doy <- 181
+gdd_threshold <- 50
+
+last_spring_frost_by_site_year <- df_with_events_50 %>%
+  filter(
+    is_frost == TRUE,
+    DOY <= spring_end_doy,
+    !grepl("^(CA|US)", site_id)
+  ) %>%
+  group_by(site_id, year) %>%
+  summarise(
+    last_event_DOY = max(DOY, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+gdd_until_last_spring_frost <- df_with_events_50 %>%
+  filter(!grepl("^(CA|US)", site_id)) %>%
+  inner_join(last_spring_frost_by_site_year, by = c("site_id", "year")) %>%
+  filter(DOY <= last_event_DOY) %>%
+  arrange(site_id, year, DOY)
+
+ggplot() +
+  geom_line(
+    data = gdd_until_last_spring_frost %>% filter(year != 2017),
+    aes(x = DOY, y = GDD, group = interaction(site_id, year)),
+    color = "grey70",
+    alpha = 0.45,
+    linewidth = 0.4
+  ) +
+  geom_line(
+    data = gdd_until_last_spring_frost %>% filter(year == 2017),
+    aes(x = DOY, y = GDD, group = interaction(site_id, year)),
+    color = "red",
+    linewidth = 0.75
+  ) +
+  geom_hline(
+    yintercept = gdd_threshold,
+    linetype = "dashed",
+    color = "black",
+    linewidth = 0.5
+  ) +
+  facet_wrap(~ site_id, scales = "free_y") +
+  labs(
+    title = "Cumulative GDD until last spring frost event per site",
+    subtitle = paste0(
+      "2017 marked in red; dashed line = GDD-Threshold ", gdd_threshold
+    ),
+    x = "Day of Year (DOY)",
+    y = "Cumulative GDD"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(face = "bold")
+  )
+```
+
+Plot the anomalies of GDD at last frost:
+```{R}
+spring_end_doy <- 181
+
+df_europe <- df_with_events_50 %>%
+  filter(!grepl("^(CA|US)", site_id))
+
+gdd_at_last_spring_frost <- df_europe %>%
+  filter(
+    is_frost == TRUE,
+    DOY <= spring_end_doy
+  ) %>%
+  group_by(site_id, year) %>%
+  filter(DOY == max(DOY, na.rm = TRUE)) %>%
+  slice_tail(n = 1) %>%
+  ungroup() %>%
+  select(
+    site_id,
+    year,
+    last_spring_frost_DOY = DOY,
+    GDD_at_last_spring_frost = GDD
+  )
+
+gdd_reference <- gdd_at_last_spring_frost %>%
+  group_by(site_id) %>%
+  summarise(
+    mean_GDD_at_last_spring_frost =
+      mean(GDD_at_last_spring_frost, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+gdd_anomaly <- gdd_at_last_spring_frost %>%
+  left_join(gdd_reference, by = "site_id") %>%
+  mutate(
+    GDD_abs_anomaly =
+      GDD_at_last_spring_frost - mean_GDD_at_last_spring_frost,
+    year_highlight = if_else(year == 2017, "2017", "Other years")
+  )
+
+ggplot(gdd_anomaly,
+       aes(x = factor(year),
+           y = GDD_abs_anomaly,
+           fill = year_highlight)) +
+  geom_col() +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed",
+    color = "grey40"
+  ) +
+  facet_wrap(~ site_id, scales = "free_y") +
+  scale_fill_manual(
+    values = c("2017" = "red", "Other years" = "grey70")
+  ) +
+  labs(
+    title = "Absolute GDD anomaly at last spring frost",
+    subtitle = paste0(
+      "Only frost events until DOY ", spring_end_doy,
+      "; anomaly = GDD at last spring frost − site mean"
+    ),
+    x = "Year",
+    y = "Absolute GDD anomaly",
+    fill = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(face = "bold")
+  )
+```
+
+Plot duration and summed negative temperature for every event with GDD>50
+```{R}
+plot_events <- frost_events_50 %>%
+  filter(!grepl("^(US|CA)", site_id)) %>%
+  arrange(site_id, year, event_number) %>%
+  mutate(
+    event_label = paste0(year, "_", event_number),
+    event_label = factor(event_label, levels = unique(event_label))
+  )
+
+scale_factor <- max(plot_events$len, na.rm = TRUE) /
+  max(abs(plot_events$summed_negative_temp), na.rm = TRUE)
+
+ggplot(plot_events, aes(x = event_id)) +
+  geom_col(
+    aes(y = len),
+    fill = "grey70",
+    alpha = 0.7
+  ) +
+  geom_point(
+    aes(y = abs(summed_negative_temp) * scale_factor),
+    color = "red",
+    size = 1.8
+  ) +
+  geom_line(
+    aes(y = abs(summed_negative_temp) * scale_factor, group = site_id),
+    color = "red",
+    linewidth = 0.6
+  ) +
+  facet_wrap(~ site_id, scales = "free_x") +
+  scale_y_continuous(
+    name = "Event duration [days]",
+    sec.axis = sec_axis(
+      ~ . / scale_factor,
+      name = "Summed negative temperature [absolute °C]"
+    )
+  ) +
+  labs(
+    title = "Frost event duration and summed negative temperature per site",
+    subtitle = "All years, excluding US and CA sites",
+    x = "Frost event"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 6),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(face = "bold"),
+    axis.title.y.left = element_text(color = "grey30"),
+    axis.title.y.right = element_text(color = "red")
+  )
+```
+
+Plot GDD at start of event for each event
+```{R}
+plot_events_gdd <- frost_events_50 %>%
+  filter(!grepl("^(US|CA)", site_id)) %>%
+  arrange(site_id, year, event_id) %>%
+  mutate(
+    highlight_2017 = if_else(year == 2017, "2017", "Other years")
+  )
+
+ggplot(plot_events_gdd, aes(x = event_id, y = gdd_start)) +
+  geom_col(
+    aes(fill = highlight_2017),
+    alpha = 0.8
+  ) +
+  facet_wrap(~ site_id, scales = "free_x") +
+  scale_fill_manual(
+    values = c("2017" = "red", "Other years" = "grey70")
+  ) +
+  labs(
+    title = "GDD at the start of each frost event",
+    subtitle = "2017 highlighted in red",
+    x = "Frost event",
+    y = "GDD at event start",
+    fill = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 6),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(face = "bold")
+  )
+```
+
+
+
 ## Literature
 
 Quality Control variable: https://www.swissfluxnet.ethz.ch/index.php/data/variables/fluxnet-variable-codes/
