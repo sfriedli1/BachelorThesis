@@ -1,6 +1,8 @@
 ---
 title: "GDD_Event_Analysis"
-output: html_document
+output:
+  html_document: default
+  pdf_document: default
 ---
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
@@ -15,6 +17,9 @@ library(readr)
 library(dplyr)
 library(lubridate)
 library(ggplot2)
+library(factoextra)
+library(broom)
+library(ggrepel)
 ```
 
 ## Data preparation
@@ -321,6 +326,8 @@ ggplot() +
   )
 ```
 
+The plots show that for some site the GDD at last frost is among the highest ever recorded. This indicates that for some sites we had anomalous spring heating. 
+
 Plot the anomalies of GDD at last frost:
 ```{R}
 spring_end_doy <- 181
@@ -392,6 +399,8 @@ ggplot(gdd_anomaly,
   )
 ```
 
+The calculation of the absolute GDD anomaly shows that the event year of 2017 shows large anomalies for some European sites. 
+
 Plot duration and summed negative temperature for every event with GDD>50
 ```{R}
 plot_events <- frost_events_50 %>%
@@ -405,7 +414,7 @@ plot_events <- frost_events_50 %>%
 scale_factor <- max(plot_events$len, na.rm = TRUE) /
   max(abs(plot_events$summed_negative_temp), na.rm = TRUE)
 
-ggplot(plot_events, aes(x = event_id)) +
+p <- ggplot(plot_events, aes(x = event_id)) +
   geom_col(
     aes(y = len),
     fill = "grey70",
@@ -442,7 +451,18 @@ ggplot(plot_events, aes(x = event_id)) +
     axis.title.y.left = element_text(color = "grey30"),
     axis.title.y.right = element_text(color = "red")
   )
+print(p)
+ggsave(
+  filename = "../figures/gdd_frost_events/summed_negative_temp.png",
+  plot = p,
+  width = 14,
+  height = 10,
+  dpi = 300
+)
+
 ```
+
+When analyzing individual events, where a GDD threshold of 50 was passed, then the events in the spring for some sites had a longer than average duration and in some cases also larger negative temperature sums over the whole event. But this is not the case for all sites that showed anomolous GDD at the last frost event before. 
 
 Plot GDD at start of event for each event
 ```{R}
@@ -477,6 +497,650 @@ ggplot(plot_events_gdd, aes(x = event_id, y = gdd_start)) +
   )
 ```
 
+By plotting the GDD at the start of each event the objective was to see if we have multiple events in the year 2017 and in case we have multiple events, if all of the events show above average high GDD at the start of the event or only at the last frost event. But except for one site there was only one frost event in spring, when the GDD threshold of 50 was already passed. This indicates that only had one frost event at most sites, which was impactful in some cases. 
+
+### Analysis of 2012 Event in Northamerica 
+Plotting the course of GDD until DOY 151
+```{R}
+gdd_until_151 <- df_with_events_50 %>%
+  filter(DOY <= 151) %>%
+  filter(grepl("^(CA|US)", site_id))%>%
+  arrange(site_id, year, DOY) %>%
+  group_by(site_id, year) %>%
+  ungroup()
+
+ggplot() +
+  geom_line(
+    data = gdd_until_151 %>% filter(year != 2012),
+    aes(x = DOY, y = GDD, group = year),
+    color = "grey70",
+    alpha = 0.45,
+    linewidth = 0.4
+  ) +
+  geom_line(
+    data = gdd_until_151 %>% filter(year == 2012),
+    aes(x = DOY, y = GDD, group = year),
+    color = "red",
+    linewidth = 0.75
+  ) +
+  facet_wrap(~ site_id, scales = "free_y") +
+  labs(
+    title = "Cumulative GDD until DOY 151 per Site",
+    subtitle = "The event year 2012 marked in red",
+    x = "Day of Year (DOY)",
+    y = "Cumulative GDD"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(face = "bold")
+  )
+```
+
+Plotting the course of GDD until last spring frost
+```{R}
+spring_end_doy <- 181
+gdd_threshold <- 50
+
+last_spring_frost_by_site_year <- df_with_events_50 %>%
+  filter(
+    is_frost == TRUE,
+    DOY <= spring_end_doy,
+    grepl("^(CA|US)", site_id)
+  ) %>%
+  group_by(site_id, year) %>%
+  summarise(
+    last_event_DOY = max(DOY, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+gdd_until_last_spring_frost <- df_with_events_50 %>%
+  filter(grepl("^(CA|US)", site_id)) %>%
+  inner_join(last_spring_frost_by_site_year, by = c("site_id", "year")) %>%
+  filter(DOY <= last_event_DOY) %>%
+  arrange(site_id, year, DOY)
+
+ggplot() +
+  geom_line(
+    data = gdd_until_last_spring_frost %>% filter(year != 2012),
+    aes(x = DOY, y = GDD, group = interaction(site_id, year)),
+    color = "grey70",
+    alpha = 0.45,
+    linewidth = 0.4
+  ) +
+  geom_line(
+    data = gdd_until_last_spring_frost %>% filter(year == 2012),
+    aes(x = DOY, y = GDD, group = interaction(site_id, year)),
+    color = "red",
+    linewidth = 0.75
+  ) +
+  geom_hline(
+    yintercept = gdd_threshold,
+    linetype = "dashed",
+    color = "black",
+    linewidth = 0.5
+  ) +
+  facet_wrap(~ site_id, scales = "free_y") +
+  labs(
+    title = "Cumulative GDD until last spring frost event per site",
+    subtitle = paste0(
+      "2012 marked in red; dashed line = GDD-Threshold ", gdd_threshold
+    ),
+    x = "Day of Year (DOY)",
+    y = "Cumulative GDD"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(face = "bold")
+  )
+```
+
+When analyzing the GDD at last frost for the 2012 frost event in Northamerica for multiple sites the GDD at last frost is the highest ever recorded or among the top three. The trajectory of the curve in 2017 stands out. For almost all sites it is significantly steeper compared to other year indicating a very warm spring start, which has been observed in other studies as well. 
+
+
+Plot the anomalies of GDD at last frost:
+```{R}
+spring_end_doy <- 181
+
+df_northamerica <- df_with_events_50 %>%
+  filter(grepl("^(CA|US)", site_id))
+
+gdd_at_last_spring_frost <- df_northamerica %>%
+  filter(
+    is_frost == TRUE,
+    DOY <= spring_end_doy
+  ) %>%
+  group_by(site_id, year) %>%
+  filter(DOY == max(DOY, na.rm = TRUE)) %>%
+  slice_tail(n = 1) %>%
+  ungroup() %>%
+  select(
+    site_id,
+    year,
+    last_spring_frost_DOY = DOY,
+    GDD_at_last_spring_frost = GDD
+  )
+
+gdd_reference <- gdd_at_last_spring_frost %>%
+  group_by(site_id) %>%
+  summarise(
+    mean_GDD_at_last_spring_frost =
+      mean(GDD_at_last_spring_frost, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+gdd_anomaly <- gdd_at_last_spring_frost %>%
+  left_join(gdd_reference, by = "site_id") %>%
+  mutate(
+    GDD_abs_anomaly =
+      GDD_at_last_spring_frost - mean_GDD_at_last_spring_frost,
+    year_highlight = if_else(year == 2012, "2012", "Other years")
+  )
+
+p <- ggplot(gdd_anomaly,
+       aes(x = factor(year),
+           y = GDD_abs_anomaly,
+           fill = year_highlight)) +
+  geom_col() +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed",
+    color = "grey40"
+  ) +
+  facet_wrap(~ site_id, scales = "free_y") +
+  scale_fill_manual(
+    values = c("2012" = "red", "Other years" = "grey70")
+  ) +
+  labs(
+    title = "Absolute GDD anomaly at last spring frost",
+    subtitle = paste0(
+      "Only frost events until DOY ", spring_end_doy,
+      "; anomaly = GDD at last spring frost − site mean"
+    ),
+    x = "Year",
+    y = "Absolute GDD anomaly",
+    fill = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(face = "bold")
+  )
+print(p)
+ggsave(
+  filename = "../figures/gdd_frost_events/gdd_anomaly_na.png",
+  plot = p,
+  width = 14,
+  height = 10,
+  dpi = 300
+)
+
+```
+
+When analyzing the anomaly of GDD at last frost all north american sites show positive anomalies. For multiple sites the anomalies are among the largest recorded. This is a further indication that the last spring frost event in 2012 was exceptional. Especially the US-Ho2 has an extremely anomalous GDD anomaly.
+
+Plot duration and summed negative temperature for every event with GDD>50
+```{R}
+plot_events <- frost_events_50 %>%
+  filter(grepl("^(US|CA)", site_id)) %>%
+  arrange(site_id, year, event_number) %>%
+  mutate(
+    event_label = paste0(year, "_", event_number),
+    event_label = factor(event_label, levels = unique(event_label))
+  )
+
+scale_factor <- max(plot_events$len, na.rm = TRUE) /
+  max(abs(plot_events$summed_negative_temp), na.rm = TRUE)
+
+p <- ggplot(plot_events, aes(x = event_id)) +
+  geom_col(
+    aes(y = len),
+    fill = "grey70",
+    alpha = 0.7
+  ) +
+  geom_point(
+    aes(y = abs(summed_negative_temp) * scale_factor),
+    color = "red",
+    size = 1.8
+  ) +
+  geom_line(
+    aes(y = abs(summed_negative_temp) * scale_factor, group = site_id),
+    color = "red",
+    linewidth = 0.6
+  ) +
+  facet_wrap(~ site_id, scales = "free_x") +
+  scale_y_continuous(
+  name = "Event duration [days]",
+  breaks = seq(0, 10, by = 1),
+  sec.axis = sec_axis(
+    ~ . / scale_factor,
+    name = "Summed negative temperature [absolute °C]"
+  )
+  ) +
+  labs(
+    title = "Frost event duration and summed negative temperature per site",
+    subtitle = "All years, for US and CA sites",
+    x = "Frost event"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 6),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(face = "bold"),
+    axis.title.y.left = element_text(color = "grey30"),
+    axis.title.y.right = element_text(color = "red")
+  )
+
+print(p)
+ggsave(
+  filename = "../figures/gdd_frost_events/frost_event_duration_negative_temp.png",
+  plot = p,
+  width = 14,
+  height = 10,
+  dpi = 300
+)
+```
+
+For many of the sites there are multiple frost events in the spring of 2012. Some of the events in 2012 show above average summed negative temperatures. For most sites the first events have a longer duration then later events. In 2012 most sites have more events then other years. 
+
+Plot GDD at start of event for each event
+```{R}
+plot_events_gdd <- frost_events_50 %>%
+  filter(grepl("^(US|CA)", site_id)) %>%
+  arrange(site_id, year, event_id) %>%
+  mutate(
+    highlight_2012 = if_else(year == 2012, "2012", "Other years")
+  )
+
+p <- ggplot(plot_events_gdd, aes(x = event_id, y = gdd_start)) +
+  geom_col(
+    aes(fill = highlight_2012),
+    alpha = 0.8
+  ) +
+  facet_wrap(~ site_id, scales = "free_x") +
+  scale_fill_manual(
+    values = c("2012" = "red", "Other years" = "grey70")
+  ) +
+  labs(
+    title = "GDD at the start of each frost event",
+    subtitle = "2012 highlighted in red",
+    x = "Frost event",
+    y = "GDD at event start",
+    fill = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 6),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(face = "bold")
+  )
+print(p)
+ggsave(
+  filename = "../figures/gdd_frost_events/gdd_frost_event.png",
+  plot = p,
+  width = 14,
+  height = 10,
+  dpi = 300
+)
+```
+
+When looking at the GDD at the start of each frost event, the events in 2012 are among the highest of all events, especially the last event at each of the sites. In addition this graphic shows that for the US-Ho2 site frost events when the GDD threshold of 50 has already been crossed have never happened before 2012 and only happened once again in 2016.
+
+## Patterns in GDD across sites
+Analyse GDD at frost events across sites
+```{R}
+frost_events_50 <- frost_events_50 %>%
+  mutate(
+    continent = if_else(
+      grepl("^(US|CA)", site_id),
+      "North America",
+      "Europe"
+    )
+  )
+
+site_summary <- frost_events_50 %>%
+  group_by(site_id, continent) %>%
+  summarise(
+    # mean event duration
+    mean_duration = mean(len, na.rm = TRUE),
+    
+    # mean frost intensity
+    mean_snt = mean(abs(summed_negative_temp), na.rm = TRUE),
+    
+    # mean gdd at frost
+    mean_gdd = mean(gdd_start, na.rm = TRUE),
+    
+    # number of events
+    n_events = n(),
+    
+    # last frost
+    latest_frost = max(idx_start, na.rm = TRUE),
+    
+    .groups = "drop"
+  )
+```
+Mean gdd at each site
+```{R}
+# plot mean gdd per continent
+ggplot(site_summary,
+       aes(x = continent, y = mean_gdd, fill = continent)) +
+  geom_boxplot() +
+  theme_minimal()
+
+# plot mean gdd per site
+ggplot(site_summary,
+       aes(x = reorder(site_id, mean_gdd),
+           y = mean_gdd,
+           fill = continent)) +
+  geom_col() +
+  coord_flip()
+```
+
+Cluster Analysis
+```{R}
+cluster_data <- site_summary %>%
+  select(
+    site_id,
+    mean_duration,
+    mean_snt,
+    mean_gdd,
+    n_events,
+    latest_frost
+  ) %>%
+  na.omit()
+
+cluster_matrix <- cluster_data %>%
+  select(-site_id)
+
+scaled <- scale(cluster_matrix)
+
+rownames(scaled) <- cluster_data$site_id
+
+hc <- hclust(dist(scaled))
+
+plot(hc)
+```
+
+The dendrogramm shows that the similarities between sites do not depend on the geographical location or continent, but rather on local climate- and vegetationregimes. 
+
+PCA analysis 
+```{R}
+pca_data <- site_summary %>%
+  select(mean_duration, mean_snt, mean_gdd, n_events)
+
+pca <- prcomp(pca_data, scale. = TRUE)
+summary(pca)
+
+p <- fviz_pca_biplot(
+  pca,
+  label = "var",
+  habillage = site_summary$site_id,
+  repel = TRUE
+)
+print(p)
+ggsave(
+  filename = "../figures/gdd_frost_events/pca_analysis.png",
+  plot = p,
+  width = 14,
+  height = 10,
+  dpi = 300
+)
+```
+
+The PCA revealed a dominant gradient separating sites characterized by long and thermally intense frost events from sites experiencing frost under advanced spring conditions with high accumulated GDD and frequent frost occurrence. Notably, European and North American sites did not form clearly separated groups, suggesting that local climatic and ecological conditions are more important than continental location in shaping frost-event regimes.
+
+## Trend analysis
+```{R}
+# extract the last frost event per year
+gdd_last_frost <- frost_events_50 %>%
+  group_by(site_id, year) %>%
+  slice_max(
+    order_by = start_date,
+    n = 1,
+    with_ties = FALSE
+  ) %>%
+  ungroup() %>%
+  mutate(
+    frost_doy = lubridate::yday(start_date)
+  )
+# sum up the number of events per year
+events_per_year <- frost_events_50 %>%
+  group_by(site_id, year) %>%
+  summarise(
+    n_events = n(),
+    .groups = "drop"
+  )
+# calculate the maximum summed negative temperature per year
+max_intensity <- frost_events_50 %>%
+  group_by(site_id, year) %>%
+  summarise(
+    max_snt = max(abs(summed_negative_temp), na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# plot trend of GDD at last frost
+trend_labels <- gdd_last_frost %>%
+  group_by(site_id) %>%
+  do(tidy(lm(gdd_start ~ year, data = .))) %>%
+  filter(term == "year") %>%
+  mutate(
+    label = paste0(
+      ifelse(estimate > 0, "+", ""),
+      round(estimate, 2),
+      " GDD/year\np = ",
+      signif(p.value, 2)
+    )
+  )
+
+ggplot(gdd_last_frost,
+       aes(x = year, y = gdd_start)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~ site_id)+ 
+  coord_cartesian(ylim = c(0, 300))+
+  geom_text(
+    data = trend_labels,
+    aes(x = -Inf, y = Inf, label = label),
+    inherit.aes = FALSE,
+    hjust = -0.05,
+    vjust = 1.2,
+    size = 3
+  ) +
+  labs(
+    x = "Year",
+    y = "GDD at last frost",
+    title = "Trend in GDD at last frost per site"
+  ) +
+  theme_minimal()
+
+# plot DOY of last frost
+ggplot(gdd_last_frost,
+       aes(x = year, y = frost_doy)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~ site_id)+
+  coord_cartesian(ylim = c(0, 175))+
+  labs(
+    title = "Trend in DOY of last spring frost",
+    x = "Year",
+    y = "DOY"
+  ) +
+  theme_minimal()
+
+# plot the trend in number of events per year
+ggplot(events_per_year, aes(x = year, y = n_events)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_wrap(~ site_id) +
+  coord_cartesian(ylim = c(0.0, 6.5))+
+  labs(
+    title = "Number of frost events per year",
+    x = "Year",
+    y = "Number of frost events"
+  ) +
+  theme_minimal()
+
+# plot trend in summed negative temperature
+ggplot(max_intensity, aes(x = year, y = max_snt)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_wrap(~ site_id) +
+  coord_cartesian(ylim = c(0, 40))+
+  labs(
+    title = "Maximum frost intensity per year",
+    x = "Year",
+    y = "Maximum summed negative temperature [absolute °C]"
+  ) +
+  theme_minimal()
+```
+
+## Quantile analysis
+Calculate quantiles
+```{R}
+q_trends <- frost_events_50 %>%
+  group_by(site_id, year) %>%
+  summarise(
+    q90_gdd = quantile(gdd_start, 0.90, na.rm = TRUE),
+    q90_snt = quantile(abs(summed_negative_temp), 0.90, na.rm = TRUE),
+    q90_duration = quantile(len, 0.90, na.rm = TRUE),
+    n_events = n(),
+    .groups = "drop"
+  )
+
+# plot quantile gdd
+ggplot(q_trends, aes(x = year, y = q90_gdd)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_wrap(~ site_id) +
+  coord_cartesian(ylim = c(0, 250))+
+  labs(
+    title = "Trend in 90th percentile GDD at frost",
+    x = "Year",
+    y = "90th percentile GDD at frost"
+  ) +
+  theme_minimal()
+# plot quantile frost intensity
+ggplot(q_trends, aes(x = year, y = q90_snt)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_wrap(~ site_id) +
+  coord_cartesian(ylim = c(0, 45))+
+  labs(
+    title = "Trend in 90th percentile frost intensity",
+    x = "Year",
+    y = "90th percentile summed negative temperature [absolute °C]"
+  ) +
+  theme_minimal()
+```
+
+Trends of quantiles
+```{R}
+q90_gdd_trends <- q_trends %>%
+  group_by(site_id) %>%
+  do(tidy(lm(q90_gdd ~ year, data = .))) %>%
+  filter(term == "year") %>%
+  select(site_id, estimate, p.value)
+
+trend_labels_q90 <- q90_gdd_trends %>%
+  mutate(
+    label = paste0(
+      ifelse(estimate > 0, "+", ""),
+      round(estimate, 2),
+      " GDD/year\np = ",
+      signif(p.value, 2)
+    )
+  )
+
+ggplot(q_trends, aes(x = year, y = q90_gdd)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_wrap(~ site_id) +
+  geom_text(
+    data = trend_labels_q90,
+    aes(x = -Inf, y = Inf, label = label),
+    inherit.aes = FALSE,
+    hjust = -0.05,
+    vjust = 1.2,
+    size = 3
+  ) +
+  coord_cartesian(ylim = c(0, 300))+
+  labs(
+    title = "Trend in 90th percentile GDD at frost",
+    x = "Year",
+    y = "90th percentile GDD at frost"
+  ) +
+  theme_minimal()
+```
+
+Combination of trends
+```{R}
+# calculate slopes
+q90_gdd_slopes <- q_trends %>%
+  group_by(site_id) %>%
+  do(tidy(lm(q90_gdd ~ year, data = .))) %>%
+  filter(term == "year") %>%
+  select(site_id, q90_gdd_slope = estimate, q90_gdd_p = p.value)
+
+q90_snt_slopes <- q_trends %>%
+  group_by(site_id) %>%
+  do(tidy(lm(q90_snt ~ year, data = .))) %>%
+  filter(term == "year") %>%
+  select(site_id, q90_snt_slope = estimate, q90_snt_p = p.value)
+
+gdd_slopes <- gdd_last_frost %>%
+  group_by(site_id) %>%
+  do(tidy(lm(gdd_start ~ year, data = .))) %>%
+  filter(term == "year") %>%
+  select(site_id, gdd_slope = estimate, gdd_p = p.value)
+
+slope_compare <- q90_gdd_slopes %>%
+  left_join(q90_snt_slopes, by = "site_id") %>%
+  left_join(gdd_slopes, by = "site_id") %>%
+  mutate(
+    continent = if_else(grepl("^(US|CA)", site_id),
+                        "North America", "Europe")
+  )
+
+# plot q90 GDD slope vs q90 intensity slope
+ggplot(slope_compare,
+       aes(x = q90_snt_slope,
+           y = q90_gdd_slope,
+           color = continent,
+           label = site_id)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_point(size = 3, alpha = 0.8) +
+  geom_text_repel(size = 3, max.overlaps = 30) +
+  labs(
+    title = "Relationship between trends in q90 GDD and q90 frost intensity",
+    x = "Trend in q90 frost intensity [°C/year]",
+    y = "Trend in q90 GDD at frost [GDD/year]",
+    color = "Continent"
+  ) +
+  theme_minimal()
+
+# plot GDD slope vs q90 GDD slope
+ggplot(slope_compare,
+       aes(x = gdd_slope,
+           y = q90_gdd_slope,
+           color = continent,
+           label = site_id)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_point(size = 3, alpha = 0.8) +
+  geom_text_repel(size = 3, max.overlaps = 30) +
+  labs(
+    title = "Mean GDD trend vs q90 GDD trend",
+    x = "Trend in GDD at last frost [GDD/year]",
+    y = "Trend in q90 GDD at frost [GDD/year]",
+    color = "Continent"
+  ) +
+  theme_minimal()
+```
+
+The relationship between trends in mean and extreme GDD at frost suggests that increasing phenological advancement is not limited to average conditions but also affects the most vulnerable years. In contrast, trends in frost intensity were weak and inconsistent across sites, indicating that increasing spring frost risk may primarily arise from enhanced vegetation vulnerability rather than from stronger freezing temperatures themselves.
 
 
 ## Literature
