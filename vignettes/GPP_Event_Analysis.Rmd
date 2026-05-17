@@ -553,5 +553,285 @@ ggplot(plot_NT_2012_america,
   theme_classic()
 ```
 
+## Analysis of GPP after spring frost across all years per site
+Plot relative anomaly of DT GPP after frost:
+```{R}
+plot_DT_all <- aligned_DT_manual %>%
+  mutate(
+    region = if_else(grepl("^(US|CA)", site_id), "North America", "Europe")
+  )%>%
+  filter(
+    !is.na(event_id)
+  )
+
+# plot relative DT GPP anomaly
+ggplot(plot_DT_all,
+       aes(x = idx_event, y = GPP_DT_anomaly_rel, group = event_id)) +
+  geom_line(alpha = 0.08) +
+  stat_summary(
+    aes(group = 1),
+    fun = mean,
+    geom = "line",
+    linewidth = 1.3
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  coord_cartesian(ylim = c(-1, 3)) +
+  scale_y_continuous(
+    breaks = seq(-1, 3, by = 0.2)
+  ) +
+  facet_wrap(~ region)+
+  labs(
+    x = "Days relative to frost event start",
+    y = "Relative GPP anomaly",
+    title = "Pooled relative DT GPP anomaly around all frost events"
+  ) +
+  theme_classic()
+
+plot_NT_all <- aligned_NT_manual %>%
+  mutate(
+    region = if_else(grepl("^(US|CA)", site_id), "North America", "Europe")
+  )%>%
+  filter(
+    !is.na(event_id)
+  )
+
+# plot relative NT GPP anomaly
+ggplot(plot_NT_all,
+       aes(x = idx_event, y = GPP_NT_anomaly_rel, group = event_id)) +
+  geom_line(alpha = 0.08) +
+  stat_summary(
+    aes(group = 1),
+    fun = mean,
+    geom = "line",
+    linewidth = 1.3
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  coord_cartesian(ylim = c(-1, 3)) +
+  scale_y_continuous(
+    breaks = seq(-1, 3, by = 0.2)
+  ) +
+  facet_wrap(~ region)+
+  labs(
+    x = "Days relative to frost event start",
+    y = "Relative GPP anomaly",
+    title = "Pooled relative NT GPP anomaly around all frost events"
+  ) +
+  theme_classic()
+```
+
+In the mean the relative anomaly stagnates for DT GPP and reduces slighly the first few days for the relative anomaly of NT GPP. But in the mean there is no trend of a negative relative anomaly. 
+
+### Analyse if the GPP response is related to frost severity
+```{R}
+# analysis for DT GPP
+events_DT <- events_DT %>%
+  mutate(
+    frost_class = case_when(
+      Tmin_abs > -4 ~ "moderate",
+      Tmin_abs > -10 ~ "strong",
+      TRUE ~ "extreme"
+    )
+  )
+
+aligned_DT_manual <- aligned_DT_manual %>%
+  left_join(
+    events_DT %>%
+      select(event_id, frost_class),
+    by = "event_id"
+  )
+
+ggplot(aligned_DT_manual,
+       aes(idx_event, GPP_DT_anomaly_rel)) +
+  stat_summary(fun = mean, geom = "line", linewidth = 1.2) +
+  facet_wrap(~ frost_class)+
+  coord_cartesian(ylim = c(-0.4, 1.4)) +
+  scale_y_continuous(
+    breaks = seq(-0.4, 1.4, by = 0.2)
+  )+
+  labs(
+    x = "Days relative to frost event start",
+    y = "Relative DT GPP anomaly",
+    title = "Relative DT GPP anomaly in dependence of frost severity"
+  )
+
+# analysis for NT GPP
+events_NT <- events_NT %>%
+  mutate(
+    frost_class = case_when(
+      Tmin_abs > -4 ~ "moderate",
+      Tmin_abs > -10 ~ "strong",
+      TRUE ~ "extreme"
+    )
+  )
+
+aligned_NT_manual <- aligned_NT_manual %>%
+  left_join(
+    events_NT %>%
+      select(event_id, frost_class),
+    by = "event_id"
+  )
+
+ggplot(aligned_NT_manual,
+       aes(idx_event, GPP_NT_anomaly_rel)) +
+  stat_summary(fun = mean, geom = "line", linewidth = 1.2) +
+  facet_wrap(~ frost_class) +
+  coord_cartesian(ylim = c(-0.4, 1.4)) +
+  scale_y_continuous(
+    breaks = seq(-0.4, 1.4, by = 0.2)
+  ) +
+  labs(
+    x = "Days relative to frost event start",
+    y = "Relative NT GPP anomaly",
+    title = "Relative NT GPP anomaly in dependence of frost severity"
+  )
+```
+
+Relative anomaly of DT GPP reaches up to -20% for extreme absolute negative temperatures. For moderate and strong absolute negative temperatures no negative relative DT GPP anomaly is observed. 
+Relative anomaly of NT GPP shows strong reduction for extreme and still significant reduction for strong absolute negative temperatures. 
+
+Analyse and Plot the running mean GPP in dependence of frost severity:
+```{R}
+# running mean DT GPP
+ggplot(aligned_DT_manual,
+       aes(idx_event, GPP_DT_trailing_4d_pos)) +
+  stat_summary(fun = mean, geom = "line", linewidth = 1.2) +
+  facet_wrap(~ frost_class) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(
+    x = "Days relative to frost event start",
+    y = "4-day trailing mean DT GPP",
+    title = "DT GPP trajectory in dependence of frost severity"
+  ) 
+
+# running mean NT GPP
+ggplot(aligned_NT_manual,
+       aes(idx_event, GPP_NT_trailing_4d_pos)) +
+  stat_summary(fun = mean, geom = "line", linewidth = 1.2) +
+  facet_wrap(~ frost_class) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(
+    x = "Days relative to frost event start",
+    y = "4-day trailing mean NT GPP",
+    title = "NT GPP trajectory in dependence of frost severity"
+  )
+```
+
+Plotting the trailing mean of DT GPP for all three classes of frost severity a clear reduction is visible for extreme absolute negative temperatures for the first 5 days. For strong absolute temperatures there is also a slight reduction in the trailing mean DT GPP. 
+
+Plotting the trailing mean of NT GPP for all three classes of frost severity a clear reduction is visible for extreme absolute negative temperatures for the first 10 days. For strong absolute temperatures there is also a clear reduction for the first 3-4 days.
+
+### Analyse the impact of the GPP-Level before the frost event
+Categorize events based on pre-event GPP:
+```{R}
+# calculate and plot for DT GPP
+aligned_DT_manual <- aligned_DT_manual %>%
+  mutate(
+    activity_class = case_when(
+      GPP_DT_baseline < 2 ~ "low",
+      GPP_DT_baseline < 5 ~ "medium",
+      TRUE ~ "high"
+    )
+  )
+
+ggplot(aligned_DT_manual,
+       aes(x = idx_event, y = GPP_DT_trailing_4d_pos)) +
+  stat_summary(fun = mean, geom = "line", linewidth = 1.2) +
+  facet_wrap(~ activity_class) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(
+    x = "Days relative to frost event start",
+    y = "4-day trailing mean DT GPP",
+    title = "DT GPP trajectory in dependence of pre-frost GPP activity"
+  )
+
+# calculate and plot for NT GPP
+aligned_NT_manual <- aligned_NT_manual %>%
+  mutate(
+    activity_class = case_when(
+      GPP_NT_baseline < 2 ~ "low",
+      GPP_NT_baseline < 5 ~ "medium",
+      TRUE ~ "high"
+    )
+  )
+
+ggplot(aligned_NT_manual,
+       aes(x = idx_event, y = GPP_NT_trailing_4d_pos)) +
+  stat_summary(fun = mean, geom = "line", linewidth = 1.2) +
+  facet_wrap(~ activity_class) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(
+    x = "Days relative to frost event start",
+    y = "4-day trailing mean NT GPP",
+    title = "NT GPP trajectory in dependence of pre-frost GPP activity"
+  )
+```
+
+For DT GPP there is a decrease in trailing GPP for high base level GPP. But for some reason the peak is before the event and then the lowest is when the event hits. 
+For NT GPP there is a decrease in all cases, but the decrease is most significant for high base level GPP. 
+
+```{R}
+# for DT GPP
+qs_DT <- quantile(aligned_DT_manual$GPP_DT_baseline,
+         probs = c(0.5, 0.75),
+         na.rm = TRUE)
+q1_DT <- qs_DT[1]
+q2_DT <- qs_DT[2]
+
+aligned_DT_manual <- aligned_DT_manual %>%
+  mutate(
+    activity_class = case_when(
+      GPP_DT_baseline < q1_DT ~ "low",
+      GPP_DT_baseline < q2_DT ~ "medium",
+      TRUE ~ "high"
+    )
+  )
+ggplot(aligned_DT_manual,
+       aes(x = idx_event, y = GPP_DT_trailing_4d_pos)) +
+  stat_summary(fun = mean, geom = "line", linewidth = 1.2) +
+  facet_wrap(~ activity_class) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(
+    x = "Days relative to frost event start",
+    y = "4-day trailing mean DT GPP",
+    title = "DT GPP trajectory in dependence of pre-frost GPP activity"
+  )
+
+# for NT GPP
+qs_NT <- quantile(
+  aligned_NT_manual$GPP_NT_baseline,
+  probs = c(0.5, 0.75),
+  na.rm = TRUE
+)
+
+q1_NT <- qs_NT[1]
+q2_NT <- qs_NT[2]
+
+aligned_NT_manual <- aligned_NT_manual %>%
+  mutate(
+    activity_class = case_when(
+      GPP_NT_baseline < q1_NT ~ "low",
+      GPP_NT_baseline < q2_NT ~ "medium",
+      TRUE ~ "high"
+    )
+  )
+ggplot(aligned_NT_manual,
+       aes(x = idx_event, y = GPP_DT_trailing_4d_pos)) +
+  stat_summary(fun = mean, geom = "line", linewidth = 1.2) +
+  facet_wrap(~ activity_class) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(
+    x = "Days relative to frost event start",
+    y = "4-day trailing mean DT GPP",
+    title = "NT GPP trajectory in dependence of pre-frost GPP activity"
+  )
+```
+
+For the 75% quantile the trailing DT and NT GPP reduced due to frost event. 
+
+### Analysis based on vegetation type and based on koeppen climate code
+**TO-DO!**
+
 
 
