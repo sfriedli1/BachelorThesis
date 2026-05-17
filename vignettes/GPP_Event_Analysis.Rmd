@@ -1,0 +1,140 @@
+---
+title: "GPP_Event_Analysis"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+```{R}
+library(arrow)
+library(readr)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(slider)
+```
+
+## Data preparation
+Read in data files
+```{R}
+df_all_stations <- read_parquet("../data/data_fdk_parquet/fdk_forest_15years.parquet")
+```
+
+Filter out sites in koeppen climate codes D and C with cold winters.
+```{R}
+df_site_info <- read_csv("../data/fdk_site_info.csv")
+df_climate_info <- df_site_info |>
+  rename("site_id" = sitename) |>
+  select(site_id, koeppen_code)
+df_sites <- df_all_stations |>
+  inner_join(df_climate_info) |>
+  filter(koeppen_code %in% c(
+      "Cfb", "Cfc",
+      "Dfa", "Dfb", "Dfc", "Dfd",
+      "Dwa", "Dwb", "Dwc", "Dwd"
+    ))
+```
+
+**Data quality assessment:**
+
+No quality control variable for `GPP_NT_VUT_REF` and `GPP_DT_VUT_REF` are available. But since these two variables are derived from `NEE_VUT_REF` the control variable `NEE_VUT_REF_QC` is used to filter out GPP recordings of insufficient quality. 
+```{R}
+df_sites <- df_sites |>
+  mutate(
+    GPP_DT_clean = if_else(NEE_VUT_REF_QC > 0, GPP_DT_VUT_REF, NA_real_),
+    GPP_NT_clean = if_else(NEE_VUT_REF_QC > 0, GPP_NT_VUT_REF, NA_real_)
+  )
+```
+
+**Calculate running trailing mean:**
+
+```{R}
+df_sites <- df_sites %>%
+  mutate(
+    date = as.Date(TIMESTAMP),
+    year = year(date),
+    DOY = yday(date)
+  ) %>%
+  group_by(site_id) %>%
+  arrange(date, .by_group = TRUE) %>%
+  mutate(
+    GPP_DT_trailing_4d = slider::slide_dbl(
+      GPP_DT_clean,
+      ~ if (sum(!is.na(.x)) >= 3) mean(.x, na.rm = TRUE) else NA_real_,
+      .before = 3,
+      .complete = TRUE
+    ),
+    GPP_NT_trailing_4d = slider::slide_dbl(
+      GPP_NT_clean,
+      ~ if (sum(!is.na(.x)) >= 3) mean(.x, na.rm = TRUE) else NA_real_,
+      .before = 3,
+      .complete = TRUE
+    )
+  ) %>%
+  ungroup()
+```
+
+### Definition of Threshold for SOS
+To define the SOS we first calculate the maximum GPP and minimum GPP per site over the entire period of recordings. Then in a next step we define a threshold for the SOS as follows:
+$$
+Threshold_{SOS} = GPP_{min} + 0.15 \times (GPP_{max} - GPP_{min})
+$$
+
+Calculate maximum and minimum GPP recordings:
+```{R}
+# set negative values to 0, because biologically values below 0 do not make sense and negative values cause issues when calculating SOS threshold
+df_sites <- df_sites %>%
+  mutate(
+    GPP_DT_trailing_4d_pos = if_else(GPP_DT_trailing_4d < 0, 0, GPP_DT_trailing_4d),
+    GPP_NT_trailing_4d_pos = if_else(GPP_NT_trailing_4d < 0, 0, GPP_NT_trailing_4d)
+  )
+
+gpp_site_amp <- df_sites %>%
+  group_by(site_id) %>%
+  summarise(
+    GPP_DT_site_max = max(GPP_DT_trailing_4d_pos, na.rm = TRUE),
+    GPP_DT_site_min = min(GPP_DT_trailing_4d_pos, na.rm = TRUE),
+    GPP_NT_site_max = max(GPP_NT_trailing_4d_pos, na.rm = TRUE),
+    GPP_NT_site_min = min(GPP_NT_trailing_4d_pos, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+Calculate SOS threshold:
+```{R}
+gpp_site_amp <- gpp_site_amp %>%
+  mutate(
+    GPP_DT_SOS_threshold = GPP_DT_site_min + 0.15 * (GPP_DT_site_max - GPP_DT_site_min),
+    GPP_NT_SOS_threshold = GPP_NT_site_min + 0.15 * (GPP_NT_site_max - GPP_NT_site_min)
+  )
+
+# combine threshold with sites data set
+df_sites <- df_sites %>%
+  left_join(gpp_site_amp, by = c("site_id"))
+```
+
+Identify frost events after SOS:
+```{R}
+source("../R/GPP_Frost_Events.R")
+```
+
+```{R}
+gpp_events_DT <- find_frost_gpp(df_sites, partition = "DT")
+gpp_events_NT <- find_frost_gpp(df_sites, partition = "NT")
+
+events_DT <- gpp_events_DT$events
+events_NT <- gpp_events_NT$events
+
+df_DT_with_events <- gpp_events_DT$df
+df_NT_with_events <- gpp_events_NT$df
+```
+
+
+
+
+
+
