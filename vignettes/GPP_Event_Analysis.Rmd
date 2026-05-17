@@ -133,8 +133,425 @@ df_DT_with_events <- gpp_events_DT$df
 df_NT_with_events <- gpp_events_NT$df
 ```
 
+## Analysis of GPP after known events
+### Analysis of GPP trajectory after 2017 events in Europe
+Align the event data inspired by the example of Event alignment proposed on blog on Event detection with rgeco package. 
+Find the explanation here: https://geco-bern.github.io/rgeco/articles/event_detection.html
+
+Manual function to align events:
+```{R}
+align_frost_events_manual <- function(df, events, before = 7, after = 14) {
+  
+  df_clean <- df %>%
+    select(-any_of(c("event_id", "dday", "partition")))
+  
+  events %>%
+    select(
+      event_id,
+      site_id,
+      event_year = year,
+      start_date,
+      end_date,
+      Tmin_abs,
+      summed_negative_temp
+    ) %>%
+    mutate(
+      window_start = start_date - before,
+      window_end = start_date + after
+    ) %>%
+    rowwise() %>%
+    mutate(
+      TIMESTAMP = list(seq.Date(window_start, window_end, by = "day"))
+    ) %>%
+    unnest(TIMESTAMP) %>%
+    ungroup() %>%
+    mutate(
+      idx_event = as.integer(TIMESTAMP - start_date)
+    ) %>%
+    left_join(
+      df_clean,
+      by = c("site_id", "TIMESTAMP")
+    )
+}
+```
+
+Align the event for DT and NT partioned GPP:
+```{R}
+aligned_DT_manual <- align_frost_events_manual(
+  df = df_DT_with_events,
+  events = events_DT,
+  before = 7,
+  after = 28
+)
+
+aligned_NT_manual <- align_frost_events_manual(
+  df = df_NT_with_events,
+  events = events_NT,
+  before = 7,
+  after = 28
+)
 
 
+```
+
+
+Calculate DT/NT-GPP anomaly:
+```{R}
+aligned_DT_manual <- aligned_DT_manual %>%
+  group_by(event_id) %>%
+  mutate(
+    GPP_DT_baseline = mean(
+      GPP_DT_trailing_4d_pos[idx_event >= -7 & idx_event <= -1],
+      na.rm = TRUE
+    ),
+    GPP_DT_anomaly_abs = GPP_DT_trailing_4d_pos - GPP_DT_baseline,
+    GPP_DT_anomaly_rel = (GPP_DT_trailing_4d_pos - GPP_DT_baseline) / GPP_DT_baseline
+  ) %>%
+  ungroup()
+
+aligned_NT_manual <- aligned_NT_manual %>%
+  group_by(event_id) %>%
+  mutate(
+    GPP_NT_baseline = mean(
+      GPP_NT_trailing_4d_pos[idx_event >= -7 & idx_event <= -1],
+      na.rm = TRUE
+    ),
+    GPP_NT_anomaly_abs = GPP_NT_trailing_4d_pos - GPP_NT_baseline,
+    GPP_NT_anomaly_rel = (GPP_NT_trailing_4d_pos - GPP_NT_baseline) / GPP_NT_baseline
+  ) %>%
+  ungroup()
+```
+
+Plot DT-/NT-GPP anomaly:
+```{R}
+plot_DT_2017_europe <- aligned_DT_manual %>%
+  filter(
+    event_year == 2017,
+    !grepl("^(US|CA)", site_id)
+  )
+
+# plot absolute anomaly
+ggplot(plot_DT_2017_europe,
+       aes(x = idx_event, y = GPP_DT_anomaly_abs, group = event_id)) +
+  geom_line(alpha = 0.35) +
+  stat_summary(
+    aes(group = 1),
+    fun = mean,
+    geom = "line",
+    linewidth = 1.2
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  facet_wrap(~ site_id) +
+  labs(
+    x = "Days relative to frost event start",
+    y = "Absolute GPP anomaly",
+    title = "Absolute DT GPP anomaly around frost events in Europe, 2017"
+  ) +
+  theme_classic()
+
+# plot relative anomaly
+ggplot(plot_DT_2017_europe,
+       aes(x = idx_event, y = GPP_DT_anomaly_rel, group = event_id)) +
+  geom_line(alpha = 0.35) +
+  stat_summary(
+    aes(group = 1),
+    fun = mean,
+    geom = "line",
+    linewidth = 1.2
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  facet_wrap(~ site_id) +
+  coord_cartesian(ylim = c(-1, 3)) +
+  scale_y_continuous(
+    breaks = seq(-1, 3, by = 0.2)
+  ) +
+  labs(
+    x = "Days relative to frost event start",
+    y = "Relative GPP anomaly",
+    title = "Relative DT GPP anomaly around frost events in Europe, 2017"
+  ) +
+  theme_classic()
+
+plot_NT_2017_europe <- aligned_NT_manual %>%
+  filter(
+    event_year == 2017,
+    !grepl("^(US|CA)", site_id)
+  )
+
+# plot absolute anomaly
+ggplot(plot_NT_2017_europe,
+       aes(x = idx_event, y = GPP_NT_anomaly_abs, group = event_id)) +
+  geom_line(alpha = 0.35) +
+  stat_summary(
+    aes(group = 1),
+    fun = mean,
+    geom = "line",
+    linewidth = 1.2
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  facet_wrap(~ site_id) +
+  labs(
+    x = "Days relative to frost event start",
+    y = "Absolute GPP anomaly",
+    title = "Absolute NT GPP anomaly around frost events in Europe, 2017"
+  ) +
+  theme_classic()
+
+# plot relative anomaly
+ggplot(plot_NT_2017_europe,
+       aes(x = idx_event, y = GPP_NT_anomaly_rel, group = event_id)) +
+  geom_line(alpha = 0.35) +
+  stat_summary(
+    aes(group = 1),
+    fun = mean,
+    geom = "line",
+    linewidth = 1.2
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  facet_wrap(~ site_id) +
+  coord_cartesian(ylim = c(-1, 3)) +
+  scale_y_continuous(
+    breaks = seq(-1, 3, by = 0.2)
+  ) +
+  labs(
+    x = "Days relative to frost event start",
+    y = "Relative GPP anomaly",
+    title = "Relative NT GPP anomaly around frost events in Europe, 2017"
+  ) +
+  theme_classic()
+```
+
+Because GPP is not directly measured but derived from NEE by flux partitioning, event classification can differ between the nighttime and daytime partitioning products. Therefore, DT- and NT-based events were analysed separately and interpreted as a sensitivity of the GPP-based frost-event definition
+
+Plot running mean DT GPP:
+```{R}
+plot_DT_2017_europe <- aligned_DT_manual %>%
+  filter(
+    event_year == 2017,
+    !grepl("^(US|CA)", site_id),
+    idx_event >= -7,
+    idx_event <= 21
+  )
+
+ggplot(plot_DT_2017_europe,
+       aes(x = idx_event,
+           y = GPP_DT_trailing_4d_pos,
+           group = event_id)) +
+  geom_line(alpha = 0.3) +
+  stat_summary(
+    aes(group = 1),
+    fun = mean,
+    geom = "line",
+    linewidth = 1.2
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  facet_wrap(~ site_id) +
+  labs(
+    x = "Days relative to frost event start",
+    y = "4-day trailing mean GPP",
+    title = "DT GPP trajectory around frost events in Europe, 2017",
+    subtitle = "Thin lines = individual events, thick line = mean response"
+  ) +
+  theme_classic()
+
+plot_NT_2017_europe <- aligned_NT_manual %>%
+  filter(
+    event_year == 2017,
+    !grepl("^(US|CA)", site_id),
+    idx_event >= -7,
+    idx_event <= 21
+  )
+
+ggplot(plot_NT_2017_europe,
+       aes(x = idx_event,
+           y = GPP_DT_trailing_4d_pos,
+           group = event_id)) +
+  geom_line(alpha = 0.3) +
+  stat_summary(
+    aes(group = 1),
+    fun = mean,
+    geom = "line",
+    linewidth = 1.2
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  facet_wrap(~ site_id) +
+  labs(
+    x = "Days relative to frost event start",
+    y = "4-day trailing mean GPP",
+    title = "NT GPP trajectory around frost events in Europe, 2017",
+    subtitle = "Thin lines = individual events, thick line = mean response"
+  ) +
+  theme_classic()
+```
+
+### Analysis of GPP trajectory after 2012 events in north America
+Plot DT-/NT-GPP anomaly north america:
+```{R}
+plot_DT_2012_america <- aligned_DT_manual %>%
+  filter(
+    event_year == 2012,
+    grepl("^(US|CA)", site_id)
+  )
+
+# plot absolute anomaly
+ggplot(plot_DT_2012_america,
+       aes(x = idx_event, y = GPP_DT_anomaly_abs, group = event_id)) +
+  geom_line(alpha = 0.35) +
+  stat_summary(
+    aes(group = 1),
+    fun = mean,
+    geom = "line",
+    linewidth = 1.2
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  facet_wrap(~ site_id) +
+  labs(
+    x = "Days relative to frost event start",
+    y = "Absolute GPP anomaly",
+    title = "Absolute DT GPP anomaly around frost events in North America, 2012"
+  ) +
+  theme_classic()
+
+# plot relative anomaly
+ggplot(plot_DT_2012_america,
+       aes(x = idx_event, y = GPP_DT_anomaly_rel, group = event_id)) +
+  geom_line(alpha = 0.35) +
+  stat_summary(
+    aes(group = 1),
+    fun = mean,
+    geom = "line",
+    linewidth = 1.2
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  facet_wrap(~ site_id) +
+  coord_cartesian(ylim = c(-1, 3)) +
+  scale_y_continuous(
+    breaks = seq(-1, 3, by = 0.2)
+  ) +
+  labs(
+    x = "Days relative to frost event start",
+    y = "Relative GPP anomaly",
+    title = "Relative DT GPP anomaly around frost events in North America, 2012"
+  ) +
+  theme_classic()
+
+plot_NT_2012_america <- aligned_NT_manual %>%
+  filter(
+    event_year == 2012,
+    grepl("^(US|CA)", site_id)
+  )
+
+# plot absolute anomaly
+ggplot(plot_NT_2012_america,
+       aes(x = idx_event, y = GPP_NT_anomaly_abs, group = event_id)) +
+  geom_line(alpha = 0.35) +
+  stat_summary(
+    aes(group = 1),
+    fun = mean,
+    geom = "line",
+    linewidth = 1.2
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  facet_wrap(~ site_id) +
+  labs(
+    x = "Days relative to frost event start",
+    y = "Absolute GPP anomaly",
+    title = "Absolute NT GPP anomaly around frost events in North America, 2012"
+  ) +
+  theme_classic()
+
+# plot relative anomaly
+ggplot(plot_NT_2012_america,
+       aes(x = idx_event, y = GPP_NT_anomaly_rel, group = event_id)) +
+  geom_line(alpha = 0.35) +
+  stat_summary(
+    aes(group = 1),
+    fun = mean,
+    geom = "line",
+    linewidth = 1.2
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  facet_wrap(~ site_id) +
+  coord_cartesian(ylim = c(-1, 3)) +
+  scale_y_continuous(
+    breaks = seq(-1, 3, by = 0.2)
+  ) +
+  labs(
+    x = "Days relative to frost event start",
+    y = "Relative GPP anomaly",
+    title = "Relative NT GPP anomaly around frost events in North America, 2012"
+  ) +
+  theme_classic()
+```
+
+Plot running mean DT-/NT-GPP in north america:
+```{R}
+plot_DT_2012_america <- aligned_DT_manual %>%
+  filter(
+    event_year == 2012,
+    grepl("^(US|CA)", site_id),
+    idx_event >= -7,
+    idx_event <= 21
+  )
+
+ggplot(plot_DT_2012_america,
+       aes(x = idx_event,
+           y = GPP_DT_trailing_4d_pos,
+           group = event_id)) +
+  geom_line(alpha = 0.3) +
+  stat_summary(
+    aes(group = 1),
+    fun = mean,
+    geom = "line",
+    linewidth = 1.2
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  facet_wrap(~ site_id) +
+  labs(
+    x = "Days relative to frost event start",
+    y = "4-day trailing mean GPP",
+    title = "DT GPP trajectory around frost events in North America, 2012",
+    subtitle = "Thin lines = individual events, thick line = mean response"
+  ) +
+  theme_classic()
+
+plot_NT_2012_america <- aligned_NT_manual %>%
+  filter(
+    event_year == 2012,
+    grepl("^(US|CA)", site_id),
+    idx_event >= -7,
+    idx_event <= 21
+  )
+
+ggplot(plot_NT_2012_america,
+       aes(x = idx_event,
+           y = GPP_DT_trailing_4d_pos,
+           group = event_id)) +
+  geom_line(alpha = 0.3) +
+  stat_summary(
+    aes(group = 1),
+    fun = mean,
+    geom = "line",
+    linewidth = 1.2
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  facet_wrap(~ site_id) +
+  labs(
+    x = "Days relative to frost event start",
+    y = "4-day trailing mean GPP",
+    title = "NT GPP trajectory around frost events in North America, 2012",
+    subtitle = "Thin lines = individual events, thick line = mean response"
+  ) +
+  theme_classic()
+```
 
 
 
