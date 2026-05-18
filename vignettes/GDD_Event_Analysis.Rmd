@@ -473,7 +473,7 @@ plot_events_gdd <- frost_events_50 %>%
     highlight_2017 = if_else(year == 2017, "2017", "Other years")
   )
 
-ggplot(plot_events_gdd, aes(x = event_id, y = gdd_start)) +
+p <- ggplot(plot_events_gdd, aes(x = event_id, y = gdd_start)) +
   geom_col(
     aes(fill = highlight_2017),
     alpha = 0.8
@@ -495,6 +495,14 @@ ggplot(plot_events_gdd, aes(x = event_id, y = gdd_start)) +
     panel.grid.minor = element_blank(),
     strip.text = element_text(face = "bold")
   )
+print(p)
+ggsave(
+  filename = "../figures/gdd_frost_events/gdd_start_of_event.png",
+  plot = p,
+  width = 14,
+  height = 10,
+  dpi = 300
+)
 ```
 
 By plotting the GDD at the start of each event the objective was to see if we have multiple events in the year 2017 and in case we have multiple events, if all of the events show above average high GDD at the start of the event or only at the last frost event. But except for one site there was only one frost event in spring, when the GDD threshold of 50 was already passed. This indicates that only had one frost event at most sites, which was impactful in some cases. 

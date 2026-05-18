@@ -722,6 +722,66 @@ Plotting the trailing mean of DT GPP for all three classes of frost severity a c
 
 Plotting the trailing mean of NT GPP for all three classes of frost severity a clear reduction is visible for extreme absolute negative temperatures for the first 10 days. For strong absolute temperatures there is also a clear reduction for the first 3-4 days.
 
+Analyze trailing GPP based on summed negative temperature:
+```{R}
+# categorize and plot DT GPP
+q_DT <- quantile(
+  aligned_DT_manual$summed_negative_temp,
+  probs = c(0.25, 0.50),
+  na.rm = TRUE
+)
+
+aligned_DT_manual <- aligned_DT_manual %>%
+  mutate(
+    frost_load_class = case_when(
+      summed_negative_temp <= q_DT[1] ~ "high frost load",
+      summed_negative_temp <= q_DT[2] ~ "medium frost load",
+      TRUE ~ "low frost load"
+    )
+  )
+
+ggplot(aligned_DT_manual,
+       aes(x = idx_event, y = GPP_DT_trailing_4d_pos)) +
+  stat_summary(fun = mean, geom = "line", linewidth = 1.2) +
+  facet_wrap(~ frost_load_class) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(
+    x = "Days relative to frost event start",
+    y = "4-day trailing mean DT GPP",
+    title = "DT GPP trajectory by cumulative frost severity"
+  )
+
+# categorize and plot NT GPP
+q_NT <- quantile(
+  aligned_NT_manual$summed_negative_temp,
+  probs = c(0.25, 0.50),
+  na.rm = TRUE
+)
+
+aligned_NT_manual <- aligned_NT_manual %>%
+  mutate(
+    frost_load_class = case_when(
+      summed_negative_temp <= q_NT[1] ~ "high frost load",
+      summed_negative_temp <= q_NT[2] ~ "medium frost load",
+      TRUE ~ "low frost load"
+    )
+  )
+
+ggplot(aligned_NT_manual,
+       aes(x = idx_event, y = GPP_NT_trailing_4d_pos)) +
+  stat_summary(fun = mean, geom = "line", linewidth = 1.2) +
+  facet_wrap(~ frost_load_class) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(
+    x = "Days relative to frost event start",
+    y = "4-day trailing mean NT GPP",
+    title = "NT GPP trajectory by cumulative frost severity"
+  )
+```
+
+It is clearly visible, that the decrease in trailing GPP is most significant for high frost load events, meaning summed negative temperature are in the lower 25% quantile. For medium frost load almost no decrease and for low frost load no decrease at all.
+
+
 ### Analyse the impact of the GPP-Level before the frost event
 Categorize events based on pre-event GPP:
 ```{R}
@@ -831,7 +891,142 @@ ggplot(aligned_NT_manual,
 For the 75% quantile the trailing DT and NT GPP reduced due to frost event. 
 
 ### Analysis based on vegetation type and based on koeppen climate code
-**TO-DO!**
+Categorize based on vegetation type:
+```{R}
+# categorize and plot DT GPP
+aligned_DT_manual <- aligned_DT_manual %>%
+  mutate(
+    forest_type = case_when(
+      igbp_land_use == "DBF" ~ "Deciduous broadleaf forest",
+      igbp_land_use == "ENF" ~ "Evergreen needleleaf forest",
+      igbp_land_use == "MF"  ~ "Mixed forest",
+      TRUE ~ "Other forest"
+    )
+  )
+
+ggplot(aligned_DT_manual,
+       aes(x = idx_event, y = GPP_DT_trailing_4d_pos)) +
+  stat_summary(fun = mean, geom = "line", linewidth = 1.2) +
+  facet_wrap(~ forest_type) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(
+    x = "Days relative to frost event start",
+    y = "4-day trailing mean DT GPP",
+    title = "DT GPP trajectory after frost events by forest type"
+  )
+
+# categorize and plot NT GPP
+aligned_NT_manual <- aligned_NT_manual %>%
+  mutate(
+    forest_type = case_when(
+      igbp_land_use == "DBF" ~ "Deciduous broadleaf forest",
+      igbp_land_use == "ENF" ~ "Evergreen needleleaf forest",
+      igbp_land_use == "MF"  ~ "Mixed forest",
+      TRUE ~ "Other forest"
+    )
+  )
+
+ggplot(aligned_NT_manual,
+       aes(x = idx_event, y = GPP_NT_trailing_4d_pos)) +
+  stat_summary(fun = mean, geom = "line", linewidth = 1.2) +
+  facet_wrap(~ forest_type) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(
+    x = "Days relative to frost event start",
+    y = "4-day trailing mean NT GPP",
+    title = "NT GPP trajectory after frost events by forest type"
+  )
+```
+
+For trailing mean DT GPP we see a reduction after frost for mixed forests but only a very slight decrease/stagnation for evergreen needleleafe forests.
+For trailing mean NT GPP we see a very strong and lasting decrease for Decidous broadleaf forests. For mixed forests a short-term decrease can also be observed. Evergreen needleleaf forest only very slightly. 
+
+Categorize based on koeppen climate code:
+```{R}
+# categorize and plot DT GPP
+aligned_DT_manual <- aligned_DT_manual %>%
+  mutate(
+    koeppen_class = case_when(
+      grepl("^C", koeppen_code) ~ "Temperate",
+      grepl("^D", koeppen_code) ~ "Continental",
+      grepl("^E", koeppen_code) ~ "Polar",
+      TRUE ~ "Other"
+    )
+  )
+
+ggplot(aligned_DT_manual,
+       aes(x = idx_event, y = GPP_DT_trailing_4d_pos)) +
+  stat_summary(fun = mean, geom = "line", linewidth = 1.2) +
+  facet_wrap(~ koeppen_class) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(
+    x = "Days relative to frost event start",
+    y = "4-day trailing mean DT GPP",
+    title = "DT GPP trajectory after frost events by Köppen climate class"
+  )
+
+# categorize and plot NT GPP
+aligned_NT_manual <- aligned_NT_manual %>%
+  mutate(
+    koeppen_class = case_when(
+      grepl("^C", koeppen_code) ~ "Temperate",
+      grepl("^D", koeppen_code) ~ "Continental",
+      grepl("^E", koeppen_code) ~ "Polar",
+      TRUE ~ "Other"
+    )
+  )
+
+ggplot(aligned_NT_manual,
+       aes(x = idx_event, y = GPP_NT_trailing_4d_pos)) +
+  stat_summary(fun = mean, geom = "line", linewidth = 1.2) +
+  facet_wrap(~ koeppen_class) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(
+    x = "Days relative to frost event start",
+    y = "4-day trailing mean NT GPP",
+    title = "NT GPP trajectory after frost events by Köppen climate class"
+  )
+```
+
+When comparing continental vs. Temperate climates, there does not appear to be a difference in the response to frost events. For both cases there is a short-term reduction of trailing GPP followed by an increase. 
+
+Plot the relative anomaly of trailing mean GPP:
+```{R}
+# DT: relative GPP anomaly by Köppen climate class
+ggplot(aligned_DT_manual,
+       aes(x = idx_event, y = GPP_DT_anomaly_rel)) +
+  stat_summary(fun = mean, geom = "line", linewidth = 1.2) +
+  facet_wrap(~ koeppen_class) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  coord_cartesian(ylim = c(-1.0, 2.0)) +
+  scale_y_continuous(
+    breaks = seq(-1.0, 2.0, by = 0.25)
+  ) +
+  labs(
+    x = "Days relative to frost event start",
+    y = "Relative DT GPP anomaly",
+    title = "Relative DT GPP anomaly after frost events by Köppen climate class"
+  )
+
+# NT: relative GPP anomaly by Köppen climate class
+ggplot(aligned_NT_manual,
+       aes(x = idx_event, y = GPP_NT_anomaly_rel)) +
+  stat_summary(fun = mean, geom = "line", linewidth = 1.2) +
+  facet_wrap(~ koeppen_class) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  coord_cartesian(ylim = c(-1.0, 2.0)) +
+  scale_y_continuous(
+    breaks = seq(-1.0, 2.0, by = 0.25)
+  ) +
+  labs(
+    x = "Days relative to frost event start",
+    y = "Relative NT GPP anomaly",
+    title = "Relative NT GPP anomaly after frost events by Köppen climate class"
+  )
+```
+
 
 
 
