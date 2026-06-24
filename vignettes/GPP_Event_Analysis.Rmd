@@ -16,6 +16,7 @@ library(dplyr)
 library(lubridate)
 library(ggplot2)
 library(slider)
+library(tidyr)
 ```
 
 ## Data preparation
@@ -1026,6 +1027,616 @@ ggplot(aligned_NT_manual,
     title = "Relative NT GPP anomaly after frost events by Köppen climate class"
   )
 ```
+
+
+### Analysis of mean seasonal cycle
+Plot mean seasonal cycle and seasonal cycle of event year
+```{R}
+# ------------------------------------------------------------
+# SETTINGS
+# ------------------------------------------------------------
+
+# Choose GPP variable
+gpp_var <- "GPP_DT_trailing_4d_pos"   # or "GPP_NT_trailing_4d_pos"
+
+# Choose corresponding frost event table
+events_use <- events_DT              # or events_NT
+
+# Define significant frost events
+significant_events <- events_use %>%
+  filter(Tmin_abs <= -4) %>%          # adjust threshold if needed
+  distinct(site_id, event_year = year)
+
+# ------------------------------------------------------------
+# 1) Calculate SOS for each site-year
+# ------------------------------------------------------------
+
+sos_site_year <- df_sites %>%
+  group_by(site_id, year) %>%
+  arrange(date, .by_group = TRUE) %>%
+  summarise(
+    SOS_DOY = DOY[
+      which(.data[[gpp_var]] >= first(GPP_DT_SOS_threshold))[1]
+    ],
+    .groups = "drop"
+  ) %>%
+  filter(!is.na(SOS_DOY))
+
+# Use NT threshold if NT-GPP is selected
+if (gpp_var == "GPP_NT_trailing_4d_pos") {
+  sos_site_year <- df_sites %>%
+    group_by(site_id, year) %>%
+    arrange(date, .by_group = TRUE) %>%
+    summarise(
+      SOS_DOY = DOY[
+        which(.data[[gpp_var]] >= first(GPP_NT_SOS_threshold))[1]
+      ],
+      .groups = "drop"
+    ) %>%
+    filter(!is.na(SOS_DOY))
+}
+
+# ------------------------------------------------------------
+# 2) Prepare GPP data
+# ------------------------------------------------------------
+
+gpp_seasonal_df <- df_sites %>%
+  select(site_id, date, year, DOY, all_of(gpp_var)) %>%
+  rename(GPP = all_of(gpp_var)) %>%
+  left_join(sos_site_year, by = c("site_id", "year")) %>%
+  mutate(
+    day_rel_SOS = DOY - SOS_DOY
+  ) %>%
+  filter(!is.na(GPP))
+
+# ------------------------------------------------------------
+# 3) Calculate mean seasonal cycle across all station-years
+#    Black line: all available station-years
+# ------------------------------------------------------------
+
+mean_cycle_doy <- gpp_seasonal_df %>%
+  group_by(DOY) %>%
+  summarise(
+    GPP_mean = mean(GPP, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+mean_cycle_sos <- gpp_seasonal_df %>%
+  filter(day_rel_SOS >= -150,
+         day_rel_SOS <= 365) %>%
+  group_by(day_rel_SOS) %>%
+  summarise(
+    GPP_mean = mean(GPP, na.rm = TRUE),
+    n = sum(!is.na(GPP)),
+    .groups = "drop"
+  ) %>%
+  filter(n>=10)
+
+# ------------------------------------------------------------
+# 4) Calculate mean seasonal cycle for frost-event years
+#    Red line: only station-years with significant frost after SOS
+# ------------------------------------------------------------
+
+eventyear_df <- gpp_seasonal_df %>%
+  inner_join(significant_events, by = c("site_id", "year" = "event_year"))
+
+event_cycle_doy <- eventyear_df %>%
+  group_by(DOY) %>%
+  summarise(
+    GPP_event = mean(GPP, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+event_cycle_sos <- eventyear_df %>%
+  filter(!is.na(day_rel_SOS)) %>%
+  group_by(day_rel_SOS) %>%
+  summarise(
+    GPP_event = mean(GPP, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# ------------------------------------------------------------
+# 5) Plot A: Seasonal cycle by day of year
+# ------------------------------------------------------------
+
+ggplot() +
+  geom_line(
+    data = mean_cycle_doy,
+    aes(x = DOY, y = GPP_mean),
+    color = "black",
+    linewidth = 1.2
+  ) +
+  geom_line(
+    data = event_cycle_doy,
+    aes(x = DOY, y = GPP_event),
+    color = "red",
+    linewidth = 1.2
+  ) +
+  labs(
+    x = "Day of year",
+    y = "GPP",
+    title = "Mean seasonal cycle of GPP",
+    subtitle = "Black = all station-years, red = station-years with significant frost after SOS"
+  ) +
+  theme_classic()
+
+# ------------------------------------------------------------
+# 6) Plot B: Seasonal cycle relative to SOS
+# ------------------------------------------------------------
+
+ggplot() +
+  geom_line(
+    data = mean_cycle_sos,
+    aes(x = day_rel_SOS, y = GPP_mean),
+    color = "black",
+    linewidth = 1.2
+  ) +
+  geom_line(
+    data = event_cycle_sos,
+    aes(x = day_rel_SOS, y = GPP_event),
+    color = "red",
+    linewidth = 1.2
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(
+    x = "Days relative to SOS",
+    y = "GPP",
+    title = "Mean seasonal cycle of GPP relative to SOS",
+    subtitle = "Black = all station-years, red = station-years with significant frost after SOS"
+  ) +
+  theme_classic()
+```
+
+Averaged over all stations it is visible that the seasonal cycle in years with significant frost after SOS is rising faster in early spring but the yearly peak is lower then on average over all station years. In addition GPP seems to be slightly higher in the last quarter of the year for years with significant frost after SOS. 
+
+When comparing the seasonal cycle relative to the SOS the trajectory of all station years and the years with significant frost after SOS is very similar until the SOS. Shortly after the SOS the years with frost after SOS show a visible reduction in GPP followed by a rise again. The peak is later after the SOS and also lower then the average over all station years. As a consequence the reduction is also shifted. 
+
+Plot mean seasonal cycle and seasonal cycle of event years 2012/2017 per station:
+```{R}
+# ------------------------------------------------------------
+# 1) Define reference event year by region
+# ------------------------------------------------------------
+
+gpp_seasonal_df_region <- gpp_seasonal_df %>%
+  mutate(
+    country_code = substr(site_id, 1, 2),
+    target_year = if_else(country_code %in% c("US", "CA"), 2012, 2017)
+  )
+
+# ------------------------------------------------------------
+# 2) Mean seasonal cycle per site across all years
+# ------------------------------------------------------------
+
+mean_cycle_doy_site <- gpp_seasonal_df_region %>%
+  group_by(site_id, DOY) %>%
+  summarise(
+    GPP_mean = mean(GPP, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+mean_cycle_sos_site <- gpp_seasonal_df_region %>%
+  filter(day_rel_SOS >= -120,
+         day_rel_SOS <= 250) %>%
+  group_by(site_id, day_rel_SOS) %>%
+  summarise(
+    GPP_mean = mean(GPP, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# ------------------------------------------------------------
+# 3) Seasonal cycle of target event year per site
+#    Europe: 2017
+#    North America: 2012
+# ------------------------------------------------------------
+
+targetyear_df <- gpp_seasonal_df_region %>%
+  filter(year == target_year)
+
+target_cycle_doy_site <- targetyear_df %>%
+  group_by(site_id, DOY, year) %>%
+  summarise(
+    GPP_target = mean(GPP, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+target_cycle_sos_site <- targetyear_df %>%
+  filter(day_rel_SOS >= -120,
+         day_rel_SOS <= 250) %>%
+  group_by(site_id, day_rel_SOS, year) %>%
+  summarise(
+    GPP_target = mean(GPP, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# ------------------------------------------------------------
+# 4) Save one DOY plot per site as PNG
+# ------------------------------------------------------------
+
+dir.create("../figures/seasonal_cycle_plots_doy", showWarnings = FALSE)
+
+sites_to_plot <- unique(mean_cycle_doy_site$site_id)
+
+for (s in sites_to_plot) {
+  
+  target_year_s <- gpp_seasonal_df_region %>%
+    filter(site_id == s) %>%
+    distinct(target_year) %>%
+    pull(target_year)
+  
+  p_doy <- ggplot() +
+    geom_line(
+      data = mean_cycle_doy_site %>% filter(site_id == s),
+      aes(x = DOY, y = GPP_mean),
+      color = "black",
+      linewidth = 1
+    ) +
+    geom_line(
+      data = target_cycle_doy_site %>% filter(site_id == s),
+      aes(x = DOY, y = GPP_target),
+      color = "red",
+      linewidth = 1
+    ) +
+    labs(
+      x = "Day of year",
+      y = "GPP",
+      title = paste0(s, " - GPP seasonal cycle"),
+      subtitle = paste0(
+        "Black = mean over all years, red = ",
+        target_year_s
+      )
+    ) +
+    theme_classic()
+  
+  ggsave(
+    filename = paste0("../figures/seasonal_cycle_plots_doy/", s, "_GPP_seasonal_cycle_DOY.png"),
+    plot = p_doy,
+    width = 7,
+    height = 5,
+    dpi = 300
+  )
+}
+
+# ------------------------------------------------------------
+# 5) Save one SOS-relative plot per site as PNG
+# ------------------------------------------------------------
+
+dir.create("../figures/seasonal_cycle_plots_sos", showWarnings = FALSE)
+
+sites_to_plot <- unique(mean_cycle_sos_site$site_id)
+
+for (s in sites_to_plot) {
+  
+  target_year_s <- gpp_seasonal_df_region %>%
+    filter(site_id == s) %>%
+    distinct(target_year) %>%
+    pull(target_year)
+  
+  p_sos <- ggplot() +
+    geom_line(
+      data = mean_cycle_sos_site %>% filter(site_id == s),
+      aes(x = day_rel_SOS, y = GPP_mean),
+      color = "black",
+      linewidth = 1
+    ) +
+    geom_line(
+      data = target_cycle_sos_site %>% filter(site_id == s),
+      aes(x = day_rel_SOS, y = GPP_target),
+      color = "red",
+      linewidth = 1
+    ) +
+    geom_vline(xintercept = 0, linetype = "dashed") +
+    labs(
+      x = "Days relative to SOS",
+      y = "GPP",
+      title = paste0(s, " - GPP seasonal cycle relative to SOS"),
+      subtitle = paste0(
+        "Black = mean over all years, red = ",
+        target_year_s
+      )
+    ) +
+    theme_classic()
+  
+  ggsave(
+    filename = paste0("../figures/seasonal_cycle_plots_sos/", s, "_GPP_seasonal_cycle_SOS.png"),
+    plot = p_sos,
+    width = 7,
+    height = 5,
+    dpi = 300
+  )
+}
+
+```
+
+Plot nonfrost vs. frost year per site
+```{R}
+# ------------------------------------------------------------
+# 1) Calculate mean seasonal cycle per site across all years
+#    Black line: all available years per site
+# ------------------------------------------------------------
+
+mean_cycle_doy_site <- gpp_seasonal_df %>%
+  group_by(site_id, DOY) %>%
+  summarise(
+    GPP_mean = mean(GPP, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+mean_cycle_sos_site <- gpp_seasonal_df %>%
+  filter(day_rel_SOS >= -150,
+         day_rel_SOS <= 365) %>%
+  group_by(site_id, day_rel_SOS) %>%
+  summarise(
+    GPP_mean = mean(GPP, na.rm = TRUE),
+    n = sum(!is.na(GPP)),
+    .groups = "drop"
+  ) %>%
+  filter(n >= 10)
+
+# ------------------------------------------------------------
+# 2) Calculate mean seasonal cycle for frost-event years per site
+#    Red line: only years with significant frost after SOS per site
+# ------------------------------------------------------------
+
+eventyear_df <- gpp_seasonal_df %>%
+  inner_join(significant_events, by = c("site_id", "year" = "event_year"))
+
+event_cycle_doy_site <- eventyear_df %>%
+  group_by(site_id, DOY) %>%
+  summarise(
+    GPP_event = mean(GPP, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+event_cycle_sos_site <- eventyear_df %>%
+  filter(day_rel_SOS >= -150,
+         day_rel_SOS <= 365) %>%
+  group_by(site_id, day_rel_SOS) %>%
+  summarise(
+    GPP_event = mean(GPP, na.rm = TRUE),
+    n = sum(!is.na(GPP)),
+    .groups = "drop"
+  ) %>%
+  filter(n >= 1)
+
+# ------------------------------------------------------------
+# Save DOY plot per site
+# ------------------------------------------------------------
+
+dir.create("../figures/seasonal_cycle_DOY_by_site", showWarnings = FALSE)
+
+for (s in unique(mean_cycle_doy_site$site_id)) {
+  
+  p_doy <- ggplot() +
+    geom_line(
+      data = mean_cycle_doy_site %>% filter(site_id == s),
+      aes(x = DOY, y = GPP_mean),
+      color = "black",
+      linewidth = 1
+    ) +
+    geom_line(
+      data = event_cycle_doy_site %>% filter(site_id == s),
+      aes(x = DOY, y = GPP_event),
+      color = "red",
+      linewidth = 1
+    ) +
+    labs(
+      x = "Day of year",
+      y = "GPP",
+      title = paste0(s, " - Mean seasonal cycle of GPP"),
+      subtitle = "Black = all years, red = years with significant frost after SOS"
+    ) +
+    theme_classic()
+  
+  ggsave(
+    filename = paste0(
+      "../figures/seasonal_cycle_DOY_by_site/",
+      s,
+      "_GPP_mean_cycle_event_years_DOY.png"
+    ),
+    plot = p_doy,
+    width = 7,
+    height = 5,
+    dpi = 300
+  )
+}
+
+# ------------------------------------------------------------
+# Save SOS-relative plot per site
+# ------------------------------------------------------------
+
+dir.create("../figures/seasonal_cycle_SOS_by_site", showWarnings = FALSE)
+
+for (s in unique(mean_cycle_sos_site$site_id)) {
+  
+  p_sos <- ggplot() +
+    geom_line(
+      data = mean_cycle_sos_site %>% filter(site_id == s),
+      aes(x = day_rel_SOS, y = GPP_mean),
+      color = "black",
+      linewidth = 1
+    ) +
+    geom_line(
+      data = event_cycle_sos_site %>% filter(site_id == s),
+      aes(x = day_rel_SOS, y = GPP_event),
+      color = "red",
+      linewidth = 1
+    ) +
+    geom_vline(xintercept = 0, linetype = "dashed") +
+    labs(
+      x = "Days relative to SOS",
+      y = "GPP",
+      title = paste0(s, " - Mean seasonal cycle of GPP relative to SOS"),
+      subtitle = "Black = all years, red = years with significant frost after SOS"
+    ) +
+    theme_classic()
+  
+  ggsave(
+    filename = paste0(
+      "../figures/seasonal_cycle_SOS_by_site/",
+      s,
+      "_GPP_mean_cycle_event_years_SOS.png"
+    ),
+    plot = p_sos,
+    width = 7,
+    height = 5,
+    dpi = 300
+  )
+}
+
+```
+
+When looking at the plots relative to the SOS per site for the european sites, it is almost always the case, that the peak is later relative to the SOS then on average across all site years. In addition almost every site shows a significant drop in GPP close after the SOS due to the significant frost event. However, for many of the sites the peak of the accumulated GPP is higher for the years with a significant frost event, then on average over all site years. 
+
+When looking at the plots relative to the SOS per site for the american sites, it is almost always the case, that there is a visible drop shortly after the SOS or sometimes even multiple times for the years with a significant frost after SOS. Therefore the curve is below the curve of the average across years. In some cases the peak is significantly higher than on average and also a lot later relative to the SOS then on average. The significantly larger peaks could be a sign of overcompensation. 
+
+
+Plot relative difference of frost years vs. all years
+```{R}
+# ------------------------------------------------------------
+# Relative difference (%) of frost years vs all years
+# ------------------------------------------------------------
+
+relative_diff_sos_site <- event_cycle_sos_site %>%
+  left_join(
+    mean_cycle_sos_site,
+    by = c("site_id", "day_rel_SOS")
+  ) %>%
+  filter(
+    day_rel_SOS >= -150,
+    day_rel_SOS <= 365,
+    !is.na(GPP_event),
+    !is.na(GPP_mean),
+    GPP_mean > 0.1
+  ) %>%
+  mutate(
+    rel_diff_percent = 100 * (GPP_event - GPP_mean) / GPP_mean
+  )
+
+# ------------------------------------------------------------
+# Save relative difference plot per site
+# ------------------------------------------------------------
+
+dir.create("../figures/relative_difference_SOS_by_site", showWarnings = FALSE)
+
+for (s in unique(relative_diff_sos_site$site_id)) {
+  
+  p <- ggplot(relative_diff_sos_site %>% filter(site_id == s),
+              aes(x = day_rel_SOS, y = rel_diff_percent)) +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    geom_vline(xintercept = 0, linetype = "dashed") +
+    geom_line(color = "red", linewidth = 1) +
+    coord_cartesian(xlim = c(-150, 365),
+                    ylim = c(-100, 100)) +
+    labs(
+      x = "Days relative to SOS",
+      y = "Relative GPP difference (%)",
+      title = paste0(s, " - Relative GPP difference"),
+      subtitle = "100 × (GPP_frost - GPP_all) / GPP_all"
+    ) +
+    theme_classic()
+  
+  ggsave(
+    filename = paste0(
+      "../figures/relative_difference_SOS_by_site/",
+      s,
+      "_relative_GPP_difference_SOS.png"
+    ),
+    plot = p,
+    width = 7,
+    height = 5,
+    dpi = 300
+  )
+}
+```
+
+
+
+Plot timing of peak GPP per site year
+```{R}
+# ------------------------------------------------------------
+# Peak GPP timing per site-year
+# ------------------------------------------------------------
+
+peak_gpp_site_year <- gpp_cycle_df %>%
+  group_by(site_id, year, frost_class) %>%
+  summarise(
+    peak_GPP = max(GPP, na.rm = TRUE),
+    DOY_peak = DOY[which.max(GPP)],
+    day_rel_SOS_peak = day_rel_SOS[which.max(GPP)],
+    SOS_DOY = first(SOS_DOY),
+    .groups = "drop"
+  ) %>%
+  filter(is.finite(peak_GPP),
+         !is.na(DOY_peak),
+         !is.na(day_rel_SOS_peak))
+
+# ------------------------------------------------------------
+# Save peak timing plots
+# ------------------------------------------------------------
+
+dir.create("../figures/GPP_peak_timing", showWarnings = FALSE)
+
+p_peak_sos <- ggplot(peak_gpp_site_year,
+                     aes(x = frost_class, y = day_rel_SOS_peak, fill = frost_class)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.6) +
+  geom_jitter(width = 0.15, size = 1.8, alpha = 0.8) +
+  facet_wrap(~ site_id, scales = "free_y") +
+  scale_fill_manual(
+    values = c("Non-frost years" = "grey70",
+               "Frost years" = "red")
+  ) +
+  labs(
+    x = NULL,
+    y = "Timing of peak GPP relative to SOS",
+    title = "Timing of peak GPP in frost vs non-frost years"
+  ) +
+  theme_classic() +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 30, hjust = 1)
+  )
+
+ggsave(
+  filename = "../figures/GPP_peak_timing/peak_GPP_timing_relative_to_SOS.png",
+  plot = p_peak_sos,
+  width = 12,
+  height = 8,
+  dpi = 300
+)
+
+p_peak_doy <- ggplot(peak_gpp_site_year,
+                     aes(x = frost_class, y = DOY_peak, fill = frost_class)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.6) +
+  geom_jitter(width = 0.15, size = 1.8, alpha = 0.8) +
+  facet_wrap(~ site_id, scales = "free_y") +
+  scale_fill_manual(
+    values = c("Non-frost years" = "grey70",
+               "Frost years" = "red")
+  ) +
+  labs(
+    x = NULL,
+    y = "DOY of peak GPP",
+    title = "Calendar timing of peak GPP in frost vs non-frost years"
+  ) +
+  theme_classic() +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 30, hjust = 1)
+  )
+
+ggsave(
+  filename = "../figures/GPP_peak_timing/peak_GPP_timing_DOY.png",
+  plot = p_peak_doy,
+  width = 12,
+  height = 8,
+  dpi = 300
+)
+```
+
+When looking at the timing of peak GPP relative to SOS, then for most sites the median is higher for years with frost, compared to years without frost.
+
+
+
 
 
 
