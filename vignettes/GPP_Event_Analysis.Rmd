@@ -1191,6 +1191,161 @@ Averaged over all stations it is visible that the seasonal cycle in years with s
 
 When comparing the seasonal cycle relative to the SOS the trajectory of all station years and the years with significant frost after SOS is very similar until the SOS. Shortly after the SOS the years with frost after SOS show a visible reduction in GPP followed by a rise again. The peak is later after the SOS and also lower then the average over all station years. As a consequence the reduction is also shifted. 
 
+Plot mean seasonal cycle for frost vs. non frost year
+```{R}
+# ------------------------------------------------------------
+# 2) Prepare GPP data and classify frost vs non-frost years
+# ------------------------------------------------------------
+
+gpp_seasonal_df <- df_sites %>%
+  select(site_id, date, year, DOY, all_of(gpp_var)) %>%
+  rename(GPP = all_of(gpp_var)) %>%
+  left_join(sos_site_year, by = c("site_id", "year")) %>%
+  left_join(
+    significant_events %>%
+      mutate(frost_class = "Frost years"),
+    by = c("site_id", "year" = "event_year")
+  ) %>%
+  mutate(
+    frost_class = if_else(
+      is.na(frost_class),
+      "Non-frost years",
+      frost_class
+    ),
+    frost_class = factor(
+      frost_class,
+      levels = c("Non-frost years", "Frost years")
+    ),
+    day_rel_SOS = DOY - SOS_DOY
+  ) %>%
+  filter(!is.na(GPP))
+
+# ------------------------------------------------------------
+# 3) Calculate mean seasonal cycle by frost class
+# ------------------------------------------------------------
+
+cycle_doy_frostclass <- gpp_seasonal_df %>%
+  group_by(frost_class, DOY) %>%
+  summarise(
+    GPP_mean = mean(GPP, na.rm = TRUE),
+    n = sum(!is.na(GPP)),
+    .groups = "drop"
+  ) %>%
+  filter(n >= 10)
+
+cycle_sos_frostclass <- gpp_seasonal_df %>%
+  filter(
+    !is.na(day_rel_SOS),
+    day_rel_SOS >= -150,
+    day_rel_SOS <= 365
+  ) %>%
+  group_by(frost_class, day_rel_SOS) %>%
+  summarise(
+    GPP_mean = mean(GPP, na.rm = TRUE),
+    n = sum(!is.na(GPP)),
+    .groups = "drop"
+  ) %>%
+  filter(n >= 10)
+
+# ------------------------------------------------------------
+# 4) Plot A: Seasonal cycle by day of year
+# ------------------------------------------------------------
+
+ggplot(
+  cycle_doy_frostclass,
+  aes(x = DOY, y = GPP_mean, color = frost_class)
+) +
+  geom_line(linewidth = 1.2) +
+  scale_color_manual(
+    values = c(
+      "Non-frost years" = "black",
+      "Frost years" = "red"
+    ),
+    drop = FALSE
+  ) +
+  labs(
+    x = "Day of year",
+    y = "GPP",
+    title = "Mean seasonal cycle of GPP",
+    subtitle = "Black = non-frost years, red = frost years",
+    color = NULL
+  ) +
+  theme_classic()
+
+# ------------------------------------------------------------
+# 5) Plot B: Seasonal cycle relative to SOS
+# ------------------------------------------------------------
+
+ggplot(
+  cycle_sos_frostclass,
+  aes(x = day_rel_SOS, y = GPP_mean, color = frost_class)
+) +
+  geom_line(linewidth = 1.2) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  scale_color_manual(
+    values = c(
+      "Non-frost years" = "black",
+      "Frost years" = "red"
+    ),
+    drop = FALSE
+  ) +
+  labs(
+    x = "Days relative to SOS",
+    y = "GPP",
+    title = "Mean seasonal cycle of GPP relative to SOS",
+    subtitle = "Black = non-frost years, red = frost years",
+    color = NULL
+  ) +
+  theme_classic()
+
+# ------------------------------------------------------------
+# 6) Calculate annual GPP sums for frost vs non-frost years
+# ------------------------------------------------------------
+
+gpp_annual_sum <- gpp_seasonal_df %>%
+  filter(!is.na(GPP), !is.na(frost_class)) %>%
+  group_by(site_id, year, frost_class) %>%
+  summarise(
+    annual_GPP_sum = sum(GPP, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# ------------------------------------------------------------
+# 7) Plot annual GPP sums by frost class
+# ------------------------------------------------------------
+
+ggplot(
+  gpp_annual_sum,
+  aes(x = frost_class, y = annual_GPP_sum, fill = frost_class)
+) +
+  geom_boxplot(alpha = 0.6, outlier.shape = NA) +
+  geom_jitter(width = 0.15, alpha = 0.7, size = 1.8) +
+  facet_wrap(~ site_id, scales = "free_y") +
+  scale_fill_manual(
+    values = c(
+      "Non-frost years" = "grey70",
+      "Frost years" = "red"
+    ),
+    drop = FALSE
+  ) +
+  labs(
+    x = NULL,
+    y = "Annual GPP sum",
+    title = "Annual GPP sum in frost vs non-frost years"
+  ) +
+  theme_classic() +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+
+When comparing the mean seasonal cycle for frost vs. non frost years the differences show the same pattern, as when comparing all years with frost years. But the differences are more pronounced so the faster rise in spring is more visible, the peak is lower and in autumn the curve for frost years is above the non frost years. 
+
+
+
+
+
 Plot mean seasonal cycle and seasonal cycle of event years 2012/2017 per station:
 ```{R}
 # ------------------------------------------------------------
@@ -1525,8 +1680,11 @@ for (s in unique(relative_diff_sos_site$site_id)) {
     geom_hline(yintercept = 0, linetype = "dashed") +
     geom_vline(xintercept = 0, linetype = "dashed") +
     geom_line(color = "red", linewidth = 1) +
-    coord_cartesian(xlim = c(-150, 365),
-                    ylim = c(-100, 100)) +
+    coord_cartesian(xlim = c(-150, 365)) +
+    scale_y_continuous(
+    breaks = seq(-200, 200, by = 50),
+    limits = c(-200, 200)
+  )+
     labs(
       x = "Days relative to SOS",
       y = "Relative GPP difference (%)",
@@ -1549,7 +1707,8 @@ for (s in unique(relative_diff_sos_site$site_id)) {
 }
 ```
 
-
+Some sites only show slight variation in relative GPP difference, indicating that there is no clear influence of frost on GPP in the following year. Other sites show a negative relative GPP difference for the first 100 days after the SOS followed by a positive relative GPP difference afterwards. This could indicate that for some sites a reduction in the early phase after the SOS is compensated or even overcompensated. However, the positive relative difference could also come from a shift in the annual trajectory of GPP. The peak can often be delayed in years with significant frost and with that the reduction in autumn starts later. So by comparing the GPP of frost and non frost years this result in a positive relative GPP difference. 
+ 
 
 Plot timing of peak GPP per site year
 ```{R}
@@ -1635,7 +1794,83 @@ ggsave(
 
 When looking at the timing of peak GPP relative to SOS, then for most sites the median is higher for years with frost, compared to years without frost.
 
+Compare yearly summed GPP in frost vs. non frost years
+```{R}
+gpp_annual <- gpp_cycle_df %>%
+  filter(!is.na(GPP), !is.na(frost_class)) %>%
+  mutate(
+    frost_class = factor(
+      frost_class,
+      levels = c("Frost years", "Non-frost years")
+    )
+  ) %>%
+  group_by(site_id, year, frost_class) %>%
+  summarise(
+    GPP_sum = sum(GPP, na.rm = TRUE),
+    .groups = "drop"
+  )
 
+p_gpp_sum <- ggplot(
+  gpp_annual,
+  aes(x = frost_class, y = GPP_sum, fill = frost_class)
+) +
+  geom_boxplot(alpha = 0.6, outlier.shape = NA) +
+  geom_jitter(width = 0.15, alpha = 0.7) +
+  facet_wrap(~ site_id, scales = "free_y") +
+  scale_fill_manual(
+    values = c(
+      "Frost years" = "red",
+      "Non-frost years" = "grey70"
+    ),
+    drop = FALSE
+  ) +
+  labs(
+    x = NULL,
+    y = "Annual GPP sum",
+    title = "Annual GPP sum in frost vs non-frost years"
+  ) +
+  theme_classic() +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+p_gpp_sum
+```
+
+The annual GPP sum in frost years for most sites is similar to non frost years or in some cases the annual GPP sum is even slightly higher then for the non frost years. This could support the argument, that the positive relative GPP differences could not just come from a shift in the annual trajectory, but also from an above average productivity resulting in higher GPP accumulation and with that an indication of (over-) compensation. Studies have shown that a frost event in spring can showed elevated bud growth in autumn season indicating internal phenological self-regulation.
+
+Statistical relation between annual GPP sum and the frost class:
+```{R}
+# ------------------------------------------------------------
+# Wilcoxon rank-sum test for each site
+# ------------------------------------------------------------
+
+wilcox_results <- gpp_annual %>%
+  group_by(site_id) %>%
+  summarise(
+    p_value = tryCatch(
+      wilcox.test(GPP_sum ~ frost_class)$p.value,
+      error = function(e) NA_real_
+    ),
+    median_frost = median(GPP_sum[frost_class == "Frost years"], na.rm = TRUE),
+    median_nonfrost = median(GPP_sum[frost_class == "Non-frost years"], na.rm = TRUE),
+    n_frost = sum(frost_class == "Frost years"),
+    n_nonfrost = sum(frost_class == "Non-frost years"),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    significant = p_value < 0.05
+  ) %>%
+  mutate(
+    relative_difference =
+      100 * (median_frost - median_nonfrost) / median_nonfrost
+  )
+
+wilcox_results
+```
+
+For some of the years where the frost years showed elevated annual summed GPP the wilcox test suggests it is not statistically significant. This could likely also be down to the fact that most sites only have very few years with relevant frost. 
 
 
 
